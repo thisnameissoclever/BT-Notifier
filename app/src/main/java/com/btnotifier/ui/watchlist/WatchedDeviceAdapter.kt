@@ -32,8 +32,8 @@ class WatchedDeviceAdapter(
             binding.tvLastSeen.text = device.lastSeenAt
                 ?.let { "Last seen: ${DATE_FORMAT.format(Date(it))}" }
                 ?: "Not seen yet"
-            binding.switchAlert.isChecked = device.alertEnabled
             binding.switchAlert.setOnCheckedChangeListener(null)
+            binding.switchAlert.isChecked = device.alertEnabled
             binding.switchAlert.setOnCheckedChangeListener { _, checked ->
                 onAlertToggle(device, checked)
             }

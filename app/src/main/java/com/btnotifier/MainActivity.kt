@@ -8,10 +8,14 @@ import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
+import com.btnotifier.data.PreferencesManager
 import com.btnotifier.databinding.ActivityMainBinding
 import com.btnotifier.service.BluetoothScanService
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
@@ -61,9 +65,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Starts the foreground service only when the Bluetooth permission required by
-     * the connectedDevice foreground-service type is already granted. On Android 14+,
-     * startForeground() with connectedDevice type throws SecurityException without it.
+     * Starts the foreground service only when:
+     * 1. The Bluetooth permission required by connectedDevice foreground-service type is granted.
+     * 2. The user hasn't toggled the service off in Settings.
      */
     fun startBackgroundServiceIfPermitted() {
         val hasBluetoothPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -75,11 +79,15 @@ class MainActivity : AppCompatActivity() {
         }
         if (!hasBluetoothPermission) return
 
-        ContextCompat.startForegroundService(
-            this,
-            Intent(this, BluetoothScanService::class.java).apply {
-                action = BluetoothScanService.ACTION_START
-            }
-        )
+        lifecycleScope.launch {
+            val enabled = PreferencesManager(this@MainActivity).serviceEnabled.first()
+            if (!enabled) return@launch
+            ContextCompat.startForegroundService(
+                this@MainActivity,
+                Intent(this@MainActivity, BluetoothScanService::class.java).apply {
+                    action = BluetoothScanService.ACTION_START
+                }
+            )
+        }
     }
 }

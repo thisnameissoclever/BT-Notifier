@@ -171,7 +171,12 @@ class BluetoothScanService : Service() {
     private fun stopForegroundService() {
         handler.removeCallbacks(periodicScanRunnable)
         scanner.stopScan()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         stopSelf()
     }
 }

@@ -19,6 +19,7 @@ object NotificationHelper {
     private const val NOTIFICATION_ID_ALERT_BASE = 2000
 
     fun createChannels(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val serviceChannel = NotificationChannel(

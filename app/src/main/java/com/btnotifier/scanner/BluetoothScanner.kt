@@ -41,9 +41,11 @@ class BluetoothScanner(private val context: Context) {
 
     private val bleScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            if (!hasConnectPermission()) return
             val device = result.device
-            val name = try { device.name ?: "" } catch (e: SecurityException) { "" }
+            // Read name only if BLUETOOTH_CONNECT is granted; still add the device without it.
+            val name = if (hasConnectPermission()) {
+                try { device.name ?: "" } catch (e: SecurityException) { "" }
+            } else ""
             addDevice(
                 ScannedDevice(
                     address = device.address,
