@@ -2,6 +2,8 @@ package com.btnotifier.service
 
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -61,7 +63,21 @@ class BluetoothScanService : Service() {
         }
 
         val notification = NotificationHelper.buildServiceNotification(this, "Bluetooth scanning active")
-        startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NotificationHelper.NOTIFICATION_ID_SERVICE,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                )
+            } else {
+                startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Cannot start foreground service — Bluetooth permission not granted", e)
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         loadPrefsAndSchedule()
 
