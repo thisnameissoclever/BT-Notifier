@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/nearbyFragment"
+        android:icon="@drawable/ic_bluetooth"
+        android:title="Nearby" />
+
+    <item
+        android:id="@+id/watchListFragment"
+        android:icon="@drawable/ic_watch_list"
+        android:title="Watch List" />
+
+    <item
+        android:id="@+id/settingsFragment"
+        android:icon="@drawable/ic_settings"
+        android:title="Settings" />
+
+</menu>

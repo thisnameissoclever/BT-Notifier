@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/nearbyFragment">
+
+    <fragment
+        android:id="@+id/nearbyFragment"
+        android:name="com.btnotifier.ui.nearby.NearbyFragment"
+        android:label="Nearby"
+        tools:layout="@layout/fragment_nearby"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <fragment
+        android:id="@+id/watchListFragment"
+        android:name="com.btnotifier.ui.watchlist.WatchListFragment"
+        android:label="Watch List"
+        tools:layout="@layout/fragment_watch_list"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <fragment
+        android:id="@+id/settingsFragment"
+        android:name="com.btnotifier.ui.settings.SettingsFragment"
+        android:label="Settings"
+        tools:layout="@layout/fragment_settings"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+</navigation>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BT Notifier</string>
+    <string name="nearby">Nearby</string>
+    <string name="watch_list">Watch List</string>
+    <string name="settings">Settings</string>
+    <string name="scan_now">Scan Now</string>
+    <string name="stop_scan">Stop Scan</string>
+    <string name="no_devices">No devices found.\nTap Scan Now to search.</string>
+    <string name="no_watched">No devices watched yet.\nScan for nearby devices and tap Watch to add them.</string>
+    <string name="unknown_device">Unknown Device</string>
+    <string name="notification_service_title">BT Notifier</string>
+    <string name="notification_service_text">Bluetooth scanning active</string>
+    <string name="notification_found_title">Watched device found!</string>
+    <string name="show_hidden">Show Hidden (%1$d)</string>
+    <string name="hidden_devices">Hidden Devices</string>
+    <string name="rename_device">Rename Device</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="hint_device_name">Device name</string>
+    <string name="unhide">Unhide</string>
+    <string name="device_hidden">Device hidden</string>
+    <string name="hide_device">Hide device</string>
+</resources>
