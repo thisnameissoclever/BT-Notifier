@@ -11,12 +11,14 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.btnotifier.databinding.FragmentNearbyBinding
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class NearbyFragment : Fragment() {
 
@@ -55,7 +57,12 @@ class NearbyFragment : Fragment() {
             onRemoveClick = { device ->
                 viewModel.removeFromWatchList(device.address)
                 Toast.makeText(requireContext(), "Removed from watch list", Toast.LENGTH_SHORT).show()
-            }
+            },
+            onHideClick = { device ->
+                viewModel.hideDevice(device)
+                Toast.makeText(requireContext(), "Device hidden", Toast.LENGTH_SHORT).show()
+            },
+            onRenameClick = { item -> showRenameDialog(item) }
         )
         binding.recyclerView.adapter = adapter
 
@@ -67,25 +74,44 @@ class NearbyFragment : Fragment() {
             }
         }
 
+        binding.btnShowHidden.setOnClickListener {
+            val hidden = viewModel.hiddenDevices.value ?: return@setOnClickListener
+            HiddenDevicesBottomSheet(hidden) { address ->
+                viewModel.unhideDevice(address)
+            }.show(childFragmentManager, "hidden_devices")
+        }
+
         viewModel.isScanning.observe(viewLifecycleOwner) { scanning ->
             binding.btnScan.text = if (scanning) "Stop Scan" else "Scan Now"
             binding.progressBar.visibility = if (scanning) View.VISIBLE else View.GONE
         }
 
-        viewModel.devices.observe(viewLifecycleOwner) { devices ->
-            val watchedAddresses = viewModel.watchedDevices.value?.map { it.address }?.toSet() ?: emptySet()
-            val items = devices.map { DeviceAdapter.DeviceItem(it, it.address in watchedAddresses) }
+        viewModel.devices.observe(viewLifecycleOwner) { items ->
             adapter.submitList(items)
-            binding.tvEmpty.visibility = if (devices.isEmpty()) View.VISIBLE else View.GONE
+            binding.tvEmpty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         }
 
-        viewModel.watchedDevices.observe(viewLifecycleOwner) { _ ->
-            // Re-bind to update watch status badges
-            val devices = viewModel.devices.value ?: return@observe
-            val watchedAddresses = viewModel.watchedDevices.value?.map { it.address }?.toSet() ?: emptySet()
-            val items = devices.map { DeviceAdapter.DeviceItem(it, it.address in watchedAddresses) }
-            adapter.submitList(items)
+        viewModel.hiddenDevices.observe(viewLifecycleOwner) { hidden ->
+            val count = hidden.size
+            binding.btnShowHidden.visibility = if (count > 0) View.VISIBLE else View.GONE
+            binding.btnShowHidden.text = "Show Hidden ($count)"
         }
+    }
+
+    private fun showRenameDialog(item: NearbyViewModel.DeviceItem) {
+        val editText = EditText(requireContext()).apply {
+            setText(item.displayName)
+            hint = "Device name"
+            setSingleLine()
+        }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Rename Device")
+            .setView(editText)
+            .setPositiveButton("Save") { _, _ ->
+                viewModel.renameDevice(item.device.address, editText.text.toString())
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     override fun onDestroyView() {

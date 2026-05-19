@@ -83,5 +83,20 @@
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_marginStart="8dp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_hide"
+            style="@style/Widget.Material3.Button.TextButton.Icon"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="8dp"
+            android:layout_marginStart="4dp"
+            android:contentDescription="Hide device"
+            app:icon="@drawable/ic_hide"
+            app:iconSize="20dp"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp" />
+
     </LinearLayout>
 </androidx.cardview.widget.CardView>

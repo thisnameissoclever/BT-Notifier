@@ -11,26 +11,26 @@ import com.btnotifier.scanner.ScannedDevice
 
 class DeviceAdapter(
     private val onAddClick: (ScannedDevice) -> Unit,
-    private val onRemoveClick: (ScannedDevice) -> Unit
-) : ListAdapter<DeviceAdapter.DeviceItem, DeviceAdapter.ViewHolder>(DIFF) {
-
-    data class DeviceItem(val device: ScannedDevice, val isWatched: Boolean)
+    private val onRemoveClick: (ScannedDevice) -> Unit,
+    private val onHideClick: (ScannedDevice) -> Unit,
+    private val onRenameClick: (NearbyViewModel.DeviceItem) -> Unit
+) : ListAdapter<NearbyViewModel.DeviceItem, DeviceAdapter.ViewHolder>(DIFF) {
 
     companion object {
-        private val DIFF = object : DiffUtil.ItemCallback<DeviceItem>() {
-            override fun areItemsTheSame(a: DeviceItem, b: DeviceItem) =
+        private val DIFF = object : DiffUtil.ItemCallback<NearbyViewModel.DeviceItem>() {
+            override fun areItemsTheSame(a: NearbyViewModel.DeviceItem, b: NearbyViewModel.DeviceItem) =
                 a.device.address == b.device.address
 
-            override fun areContentsTheSame(a: DeviceItem, b: DeviceItem) = a == b
+            override fun areContentsTheSame(a: NearbyViewModel.DeviceItem, b: NearbyViewModel.DeviceItem) = a == b
         }
     }
 
     inner class ViewHolder(private val binding: ItemDeviceBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(item: DeviceItem) {
+        fun bind(item: NearbyViewModel.DeviceItem) {
             val device = item.device
-            binding.tvDeviceName.text = device.name.ifBlank { "Unknown Device" }
+            binding.tvDeviceName.text = item.displayName
             binding.tvDeviceAddress.text = device.address
             binding.tvRssi.text = "${device.rssi} dBm"
             binding.tvType.text = if (device.isBle) "BLE" else "Classic"
@@ -41,6 +41,9 @@ class DeviceAdapter(
                 else -> R.drawable.ic_signal_weak
             }
             binding.ivSignal.setImageResource(signalIcon)
+
+            binding.root.setOnClickListener { onRenameClick(item) }
+            binding.btnHide.setOnClickListener { onHideClick(device) }
 
             if (item.isWatched) {
                 binding.btnWatch.text = "Watching"
