@@ -14,7 +14,10 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="12dp"
-        android:gravity="center_vertical">
+        android:gravity="center_vertical"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground">
 
         <ImageView
             android:id="@+id/iv_signal"
@@ -92,7 +95,7 @@
             android:minHeight="0dp"
             android:padding="8dp"
             android:layout_marginStart="4dp"
-            android:contentDescription="Hide device"
+            android:contentDescription="@string/hide_device"
             app:icon="@drawable/ic_hide"
             app:iconSize="20dp"
             app:iconGravity="textStart"

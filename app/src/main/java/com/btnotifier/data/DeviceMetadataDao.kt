@@ -9,7 +9,7 @@ interface DeviceMetadataDao {
     @Query("SELECT * FROM device_metadata")
     fun getAllLive(): LiveData<List<DeviceMetadata>>
 
-    @Query("SELECT * FROM device_metadata WHERE isHidden = 1 ORDER BY customName ASC")
+    @Query("SELECT * FROM device_metadata WHERE isHidden = 1 ORDER BY customName IS NULL, customName ASC, address ASC")
     fun getHiddenLive(): LiveData<List<DeviceMetadata>>
 
     @Query("SELECT * FROM device_metadata WHERE address = :address LIMIT 1")

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.asFlow
 import androidx.lifecycle.viewModelScope
 import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.DeviceMetadata
@@ -31,7 +32,7 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     val watchedDevices: LiveData<List<WatchedDevice>> = dao.getAllLive()
     val hiddenDevices: LiveData<List<DeviceMetadata>> = metaDao.getHiddenLive()
 
-    // address → metadata, kept in sync with DB via LiveData
+    // address → metadata, kept in sync with DB
     private var metaMap: Map<String, DeviceMetadata> = emptyMap()
 
     data class DeviceItem(
@@ -44,15 +45,19 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     init {
-        // Keep metaMap current
-        metaDao.getAllLive().observeForever { list ->
-            metaMap = list.associateBy { it.address }
-            rebuildDeviceList()
-        }
+        // Use asFlow + launchIn so observers are cancelled automatically in onCleared()
+        metaDao.getAllLive().asFlow()
+            .onEach { list ->
+                metaMap = list.associateBy { it.address }
+                rebuildDeviceList()
+            }
+            .launchIn(viewModelScope)
 
         scanner.devices.onEach { _ -> rebuildDeviceList() }.launchIn(viewModelScope)
 
-        watchedDevices.observeForever { rebuildDeviceList() }
+        watchedDevices.asFlow()
+            .onEach { rebuildDeviceList() }
+            .launchIn(viewModelScope)
     }
 
     private fun rebuildDeviceList() {
@@ -114,8 +119,13 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun renameDevice(address: String, newName: String) {
         viewModelScope.launch {
+            val name = newName.ifBlank { null }
             val existing = metaDao.getByAddress(address)
-            metaDao.upsert((existing ?: DeviceMetadata(address)).copy(customName = newName.ifBlank { null }))
+            if (existing != null) {
+                metaDao.setCustomName(address, name)
+            } else {
+                metaDao.upsert(DeviceMetadata(address, customName = name))
+            }
         }
     }
 

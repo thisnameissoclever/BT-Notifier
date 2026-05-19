@@ -11,14 +11,16 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import com.btnotifier.R
 import com.btnotifier.databinding.FragmentNearbyBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 
 class NearbyFragment : Fragment() {
 
@@ -60,7 +62,7 @@ class NearbyFragment : Fragment() {
             },
             onHideClick = { device ->
                 viewModel.hideDevice(device)
-                Toast.makeText(requireContext(), "Device hidden", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), R.string.device_hidden, Toast.LENGTH_SHORT).show()
             },
             onRenameClick = { item -> showRenameDialog(item) }
         )
@@ -75,10 +77,7 @@ class NearbyFragment : Fragment() {
         }
 
         binding.btnShowHidden.setOnClickListener {
-            val hidden = viewModel.hiddenDevices.value ?: return@setOnClickListener
-            HiddenDevicesBottomSheet(hidden) { address ->
-                viewModel.unhideDevice(address)
-            }.show(childFragmentManager, "hidden_devices")
+            HiddenDevicesBottomSheet().show(childFragmentManager, "hidden_devices")
         }
 
         viewModel.isScanning.observe(viewLifecycleOwner) { scanning ->
@@ -94,23 +93,35 @@ class NearbyFragment : Fragment() {
         viewModel.hiddenDevices.observe(viewLifecycleOwner) { hidden ->
             val count = hidden.size
             binding.btnShowHidden.visibility = if (count > 0) View.VISIBLE else View.GONE
-            binding.btnShowHidden.text = "Show Hidden ($count)"
+            binding.btnShowHidden.text = getString(R.string.show_hidden, count)
         }
     }
 
     private fun showRenameDialog(item: NearbyViewModel.DeviceItem) {
-        val editText = EditText(requireContext()).apply {
+        val context = requireContext()
+        val padding = (24 * resources.displayMetrics.density).toInt()
+
+        val inputLayout = TextInputLayout(context).apply {
+            layoutParams = ViewGroup.MarginLayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(padding, 0, padding, 0)
+        }
+        val editText = TextInputEditText(context).apply {
             setText(item.displayName)
-            hint = "Device name"
+            hint = getString(R.string.hint_device_name)
             setSingleLine()
         }
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle("Rename Device")
-            .setView(editText)
-            .setPositiveButton("Save") { _, _ ->
+        inputLayout.addView(editText)
+
+        MaterialAlertDialogBuilder(context)
+            .setTitle(R.string.rename_device)
+            .setView(inputLayout)
+            .setPositiveButton(R.string.save) { _, _ ->
                 viewModel.renameDevice(item.device.address, editText.text.toString())
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
