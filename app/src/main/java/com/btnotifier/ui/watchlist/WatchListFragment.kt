@@ -7,6 +7,8 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.btnotifier.databinding.FragmentWatchListBinding
+import com.btnotifier.device.DeviceDisplayName
+import com.btnotifier.ui.DeviceAliasDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class WatchListFragment : Fragment() {
@@ -23,17 +25,18 @@ class WatchListFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         adapter = WatchedDeviceAdapter(
-            onDelete = { device ->
+            onDelete = { item ->
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("Remove device")
-                    .setMessage("Stop watching ${device.name.ifBlank { device.address }}?")
-                    .setPositiveButton("Remove") { _, _ -> viewModel.removeDevice(device) }
+                    .setMessage("Stop watching ${item.displayName}?")
+                    .setPositiveButton("Remove") { _, _ -> viewModel.removeDevice(item.device) }
                     .setNegativeButton("Cancel", null)
                     .show()
             },
-            onAlertToggle = { device, enabled ->
-                viewModel.setAlertEnabled(device, enabled)
-            }
+            onAlertToggle = { item, enabled ->
+                viewModel.setAlertEnabled(item.device, enabled)
+            },
+            onRename = { item -> showRenameDialog(item) }
         )
         binding.recyclerView.adapter = adapter
 
@@ -46,5 +49,22 @@ class WatchListFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    private fun showRenameDialog(item: WatchListViewModel.WatchedDeviceItem) {
+        DeviceAliasDialog.show(
+            context = requireContext(),
+            currentAlias = item.customName,
+            onSave = { name -> viewModel.renameDevice(item.device.address, name, actualName(item)) },
+            onClear = { viewModel.renameDevice(item.device.address, "", actualName(item)) }
+        )
+    }
+
+    private fun actualName(item: WatchListViewModel.WatchedDeviceItem): String? {
+        return DeviceDisplayName.safeActualNameForAliasEdit(
+            alias = item.customName,
+            lastSeenName = item.lastSeenName,
+            storedWatchedName = item.device.name
+        )
     }
 }

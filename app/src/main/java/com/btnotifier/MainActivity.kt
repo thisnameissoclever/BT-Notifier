@@ -22,11 +22,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
 
     // Request all required permissions at launch; start the service only after the
-    // Bluetooth permissions are decided (granted or denied — we handle both cases).
+    // Bluetooth permissions are decided (granted or denied - we handle both cases).
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        // Always attempt — startBackgroundService() guards internally.
+        // Always attempt - startBackgroundService() guards internally.
         startBackgroundServiceIfPermitted()
     }
 

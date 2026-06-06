@@ -7,12 +7,11 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.btnotifier.R
 import com.btnotifier.databinding.ItemDeviceBinding
-import com.btnotifier.scanner.ScannedDevice
 
 class DeviceAdapter(
-    private val onAddClick: (ScannedDevice) -> Unit,
-    private val onRemoveClick: (ScannedDevice) -> Unit,
-    private val onHideClick: (ScannedDevice) -> Unit,
+    private val onAddClick: (NearbyViewModel.DeviceItem) -> Unit,
+    private val onRemoveClick: (NearbyViewModel.DeviceItem) -> Unit,
+    private val onHideClick: (NearbyViewModel.DeviceItem) -> Unit,
     private val onRenameClick: (NearbyViewModel.DeviceItem) -> Unit
 ) : ListAdapter<NearbyViewModel.DeviceItem, DeviceAdapter.ViewHolder>(DIFF) {
 
@@ -43,16 +42,20 @@ class DeviceAdapter(
             binding.ivSignal.setImageResource(signalIcon)
 
             binding.root.setOnClickListener { onRenameClick(item) }
-            binding.btnHide.setOnClickListener { onHideClick(device) }
+            binding.root.setOnLongClickListener {
+                onRenameClick(item)
+                true
+            }
+            binding.btnHide.setOnClickListener { onHideClick(item) }
 
             if (item.isWatched) {
                 binding.btnWatch.text = "Watching"
                 binding.btnWatch.isSelected = true
-                binding.btnWatch.setOnClickListener { onRemoveClick(device) }
+                binding.btnWatch.setOnClickListener { onRemoveClick(item) }
             } else {
                 binding.btnWatch.text = "Watch"
                 binding.btnWatch.isSelected = false
-                binding.btnWatch.setOnClickListener { onAddClick(device) }
+                binding.btnWatch.setOnClickListener { onAddClick(item) }
             }
         }
     }

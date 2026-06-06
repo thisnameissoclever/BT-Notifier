@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.data.WatchedDevice
+import com.btnotifier.device.DeviceDisplayName
 import com.btnotifier.scanner.BluetoothScanner
 import com.btnotifier.scanner.ScannedDevice
 import kotlinx.coroutines.delay
@@ -32,16 +33,22 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     val watchedDevices: LiveData<List<WatchedDevice>> = dao.getAllLive()
     val hiddenDevices: LiveData<List<DeviceMetadata>> = metaDao.getHiddenLive()
 
-    // address → metadata, kept in sync with DB
+    // Address to metadata, kept in sync with DB.
     private var metaMap: Map<String, DeviceMetadata> = emptyMap()
 
     data class DeviceItem(
         val device: ScannedDevice,
         val isWatched: Boolean,
-        val customName: String?
+        val customName: String?,
+        val lastSeenName: String?
     ) {
         val displayName: String
-            get() = customName?.ifBlank { null } ?: device.name.ifBlank { "Unknown Device" }
+            get() = DeviceDisplayName.resolve(
+                alias = customName,
+                primaryName = device.name,
+                secondaryName = lastSeenName,
+                fallback = "Unknown Device"
+            )
     }
 
     init {
@@ -66,10 +73,12 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
             .filter { metaMap[it.address]?.isHidden != true }
             .sortedByDescending { it.rssi }
             .map { device ->
+                val meta = metaMap[device.address]
                 DeviceItem(
                     device = device,
                     isWatched = device.address in watchedAddresses,
-                    customName = metaMap[device.address]?.customName
+                    customName = meta?.customName,
+                    lastSeenName = meta?.lastSeenName
                 )
             }
         _devices.postValue(items)
@@ -93,8 +102,8 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun addToWatchList(device: ScannedDevice) {
         viewModelScope.launch {
-            val customName = metaDao.getByAddress(device.address)?.customName
-            dao.insert(WatchedDevice(address = device.address, name = customName ?: device.name))
+            rememberLastSeenName(device.address, device.name)
+            dao.insert(WatchedDevice(address = device.address, name = device.name))
         }
     }
 
@@ -108,7 +117,12 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     fun hideDevice(device: ScannedDevice) {
         viewModelScope.launch {
             val existing = metaDao.getByAddress(device.address)
-            metaDao.upsert((existing ?: DeviceMetadata(device.address)).copy(isHidden = true))
+            metaDao.upsert(
+                (existing ?: DeviceMetadata(device.address)).copy(
+                    lastSeenName = normalizedName(device.name) ?: existing?.lastSeenName,
+                    isHidden = true
+                )
+            )
             dao.getByAddress(device.address)?.let { dao.delete(it) }
         }
     }
@@ -117,16 +131,41 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch { metaDao.setHidden(address, false) }
     }
 
-    fun renameDevice(address: String, newName: String) {
+    fun renameDevice(address: String, newName: String, actualName: String? = null) {
         viewModelScope.launch {
-            val name = newName.ifBlank { null }
+            val name = DeviceDisplayName.normalizeAlias(newName)
+            val normalizedActualName = normalizedName(actualName)
             val existing = metaDao.getByAddress(address)
-            if (existing != null) {
-                metaDao.setCustomName(address, name)
-            } else {
-                metaDao.upsert(DeviceMetadata(address, customName = name))
+            val watched = dao.getByAddress(address)
+            val updated = (existing ?: DeviceMetadata(address)).copy(
+                customName = name,
+                lastSeenName = DeviceDisplayName.retainedLastSeenName(
+                    existingAlias = existing?.customName,
+                    existingLastSeenName = existing?.lastSeenName,
+                    actualName = normalizedActualName
+                )
+            )
+            metaDao.upsert(updated)
+            when {
+                normalizedActualName != null -> dao.updateName(address, normalizedActualName)
+                DeviceDisplayName.storedNameLooksLikeAlias(existing?.customName, watched?.name) ->
+                    dao.updateName(address, "")
             }
         }
+    }
+
+    private suspend fun rememberLastSeenName(address: String, actualName: String?) {
+        val normalizedActualName = normalizedName(actualName) ?: return
+        val existing = metaDao.getByAddress(address)
+        if (existing != null) {
+            metaDao.setLastSeenName(address, normalizedActualName)
+        } else {
+            metaDao.upsert(DeviceMetadata(address, lastSeenName = normalizedActualName))
+        }
+    }
+
+    private fun normalizedName(name: String?): String? {
+        return name?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     override fun onCleared() {
