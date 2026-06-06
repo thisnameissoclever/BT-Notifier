@@ -24,6 +24,9 @@ interface WatchedDeviceDao {
     @Query("UPDATE watched_devices SET lastSeenAt = :timestamp WHERE address = :address")
     suspend fun updateLastSeen(address: String, timestamp: Long)
 
+    @Query("UPDATE watched_devices SET name = :name WHERE address = :address")
+    suspend fun updateName(address: String, name: String)
+
     @Query("UPDATE watched_devices SET alertEnabled = :enabled WHERE address = :address")
     suspend fun setAlertEnabled(address: String, enabled: Boolean)
 }

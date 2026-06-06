@@ -18,9 +18,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.btnotifier.R
 import com.btnotifier.databinding.FragmentNearbyBinding
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
+import com.btnotifier.ui.DeviceAliasDialog
 
 class NearbyFragment : Fragment() {
 
@@ -52,16 +50,16 @@ class NearbyFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         adapter = DeviceAdapter(
-            onAddClick = { device ->
-                viewModel.addToWatchList(device)
-                Toast.makeText(requireContext(), "Added ${device.name.ifBlank { device.address }} to watch list", Toast.LENGTH_SHORT).show()
+            onAddClick = { item ->
+                viewModel.addToWatchList(item.device)
+                Toast.makeText(requireContext(), "Added ${item.displayName} to watch list", Toast.LENGTH_SHORT).show()
             },
-            onRemoveClick = { device ->
-                viewModel.removeFromWatchList(device.address)
+            onRemoveClick = { item ->
+                viewModel.removeFromWatchList(item.device.address)
                 Toast.makeText(requireContext(), "Removed from watch list", Toast.LENGTH_SHORT).show()
             },
-            onHideClick = { device ->
-                viewModel.hideDevice(device)
+            onHideClick = { item ->
+                viewModel.hideDevice(item.device)
                 Toast.makeText(requireContext(), R.string.device_hidden, Toast.LENGTH_SHORT).show()
             },
             onRenameClick = { item -> showRenameDialog(item) }
@@ -98,31 +96,12 @@ class NearbyFragment : Fragment() {
     }
 
     private fun showRenameDialog(item: NearbyViewModel.DeviceItem) {
-        val context = requireContext()
-        val padding = (24 * resources.displayMetrics.density).toInt()
-
-        val inputLayout = TextInputLayout(context).apply {
-            layoutParams = ViewGroup.MarginLayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            setPadding(padding, 0, padding, 0)
-        }
-        val editText = TextInputEditText(context).apply {
-            setText(item.displayName)
-            hint = getString(R.string.hint_device_name)
-            setSingleLine()
-        }
-        inputLayout.addView(editText)
-
-        MaterialAlertDialogBuilder(context)
-            .setTitle(R.string.rename_device)
-            .setView(inputLayout)
-            .setPositiveButton(R.string.save) { _, _ ->
-                viewModel.renameDevice(item.device.address, editText.text.toString())
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
+        DeviceAliasDialog.show(
+            context = requireContext(),
+            currentAlias = item.customName,
+            onSave = { name -> viewModel.renameDevice(item.device.address, name, item.device.name) },
+            onClear = { viewModel.renameDevice(item.device.address, "", item.device.name) }
+        )
     }
 
     override fun onDestroyView() {

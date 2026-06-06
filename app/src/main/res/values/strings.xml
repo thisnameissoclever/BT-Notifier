@@ -16,6 +16,7 @@
     <string name="hidden_devices">Hidden Devices</string>
     <string name="rename_device">Rename Device</string>
     <string name="save">Save</string>
+    <string name="clear_alias">Clear Alias</string>
     <string name="cancel">Cancel</string>
     <string name="hint_device_name">Device name</string>
     <string name="unhide">Unhide</string>

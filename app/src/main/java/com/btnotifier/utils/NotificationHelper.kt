@@ -58,7 +58,7 @@ object NotificationHelper {
             .build()
     }
 
-    fun sendDeviceFoundAlert(context: Context, deviceName: String, deviceAddress: String) {
+    fun sendDeviceFoundAlert(context: Context, deviceDisplayName: String, deviceAddress: String) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val openIntent = PendingIntent.getActivity(
@@ -67,7 +67,7 @@ object NotificationHelper {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val displayName = deviceName.ifBlank { deviceAddress }
+        val displayName = deviceDisplayName.ifBlank { deviceAddress }
         val notification = NotificationCompat.Builder(context, CHANNEL_ALERT)
             .setContentTitle("Watched device found!")
             .setContentText(displayName)

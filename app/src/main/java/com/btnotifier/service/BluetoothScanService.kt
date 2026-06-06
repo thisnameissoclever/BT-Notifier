@@ -9,7 +9,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import com.btnotifier.data.AppDatabase
+import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.data.PreferencesManager
+import com.btnotifier.device.DeviceDisplayName
 import com.btnotifier.scanner.BluetoothScanner
 import com.btnotifier.utils.NotificationHelper
 import kotlinx.coroutines.*
@@ -74,7 +76,7 @@ class BluetoothScanService : Service() {
                 startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
             }
         } catch (e: SecurityException) {
-            Log.e(TAG, "Cannot start foreground service — Bluetooth permission not granted", e)
+            Log.e(TAG, "Cannot start foreground service - Bluetooth permission not granted", e)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -117,11 +119,11 @@ class BluetoothScanService : Service() {
 
     private fun performScan() {
         if (!scanner.isBluetoothEnabled) {
-            updateNotification("Bluetooth is off — waiting")
+            updateNotification("Bluetooth is off - waiting")
             return
         }
 
-        updateNotification("Scanning for devices…")
+        updateNotification("Scanning for devices...")
         scanner.startScan()
 
         // Stop scan after duration and check results
@@ -152,12 +154,31 @@ class BluetoothScanService : Service() {
 
                 lastAlertTime[watched.address] = now
                 db.watchedDeviceDao().updateLastSeen(watched.address, now)
+                rememberActualName(watched.address, found.name)
 
-                val name = found.name.ifBlank { watched.name }.ifBlank { watched.address }
+                val metadata = db.deviceMetadataDao().getByAddress(watched.address)
+                val name = DeviceDisplayName.resolve(
+                    alias = metadata?.customName,
+                    primaryName = found.name,
+                    secondaryName = metadata?.lastSeenName ?: watched.name.takeIf { it.isNotBlank() },
+                    fallback = watched.address
+                )
                 Log.i(TAG, "Watched device found: $name (${watched.address})")
                 NotificationHelper.sendDeviceFoundAlert(applicationContext, name, watched.address)
             }
         }
+    }
+
+    private suspend fun rememberActualName(address: String, actualName: String?) {
+        val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName) ?: return
+        val metaDao = db.deviceMetadataDao()
+        val existing = metaDao.getByAddress(address)
+        if (existing != null) {
+            metaDao.setLastSeenName(address, normalizedActualName)
+        } else {
+            metaDao.upsert(DeviceMetadata(address, lastSeenName = normalizedActualName))
+        }
+        db.watchedDeviceDao().updateName(address, normalizedActualName)
     }
 
     private fun updateNotification(text: String) {
