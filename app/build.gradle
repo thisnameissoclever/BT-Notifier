@@ -4,9 +4,39 @@ plugins {
     id 'com.google.devtools.ksp'
 }
 
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
+def btNotifierDebugStoreFileProperty = localProperties.getProperty('btNotifierDebugStoreFile')
+def btNotifierDebugStoreFile = btNotifierDebugStoreFileProperty != null ?
+        rootProject.file(btNotifierDebugStoreFileProperty) :
+        rootProject.file('.local-signing/bt-notifier-debug.keystore')
+def btNotifierDebugStorePassword = localProperties.getProperty('btNotifierDebugStorePassword', 'android')
+def btNotifierDebugKeyAlias = localProperties.getProperty('btNotifierDebugKeyAlias', 'androiddebugkey')
+def btNotifierDebugKeyPassword = localProperties.getProperty('btNotifierDebugKeyPassword', 'android')
+def hasBtNotifierDebugSigning =
+        btNotifierDebugStoreFile.exists() &&
+        btNotifierDebugStorePassword != null &&
+        btNotifierDebugKeyAlias != null &&
+        btNotifierDebugKeyPassword != null
+
 android {
     namespace 'com.btnotifier'
     compileSdk 34
+
+    signingConfigs {
+        if (hasBtNotifierDebugSigning) {
+            btNotifierDebug {
+                storeFile btNotifierDebugStoreFile
+                storePassword btNotifierDebugStorePassword
+                keyAlias btNotifierDebugKeyAlias
+                keyPassword btNotifierDebugKeyPassword
+            }
+        }
+    }
 
     defaultConfig {
         applicationId "com.btnotifier"
@@ -18,6 +48,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (hasBtNotifierDebugSigning) {
+                signingConfig signingConfigs.btNotifierDebug
+            }
+        }
+
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
