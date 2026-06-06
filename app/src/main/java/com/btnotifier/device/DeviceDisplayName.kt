@@ -23,9 +23,12 @@ object DeviceDisplayName {
         lastSeenName: String?,
         storedWatchedName: String?
     ): String? {
-        normalizeActualName(lastSeenName)?.let { return it }
-
         val normalizedAlias = normalizeAlias(alias)
+        val normalizedLastSeenName = normalizeActualName(lastSeenName)
+        if (normalizedLastSeenName != null && normalizedLastSeenName != normalizedAlias) {
+            return normalizedLastSeenName
+        }
+
         val normalizedStoredName = normalizeActualName(storedWatchedName)
         return normalizedStoredName?.takeUnless { storedName ->
             normalizedAlias != null && storedName == normalizedAlias
@@ -51,7 +54,7 @@ object DeviceDisplayName {
         return normalizeActualName(storedWatchedName) == normalizedAlias
     }
 
-    private fun normalizeActualName(name: String?): String? {
+    fun normalizeActualName(name: String?): String? {
         return name?.trim()?.takeIf { it.isNotEmpty() }
     }
 }

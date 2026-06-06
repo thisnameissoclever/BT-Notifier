@@ -63,6 +63,17 @@ class DeviceDisplayNameTest {
     }
 
     @Test
+    fun safeActualNameForAliasEditIgnoresLegacyLastSeenNameWhenItMatchesAlias() {
+        val actualName = DeviceDisplayName.safeActualNameForAliasEdit(
+            alias = "Studio Speaker",
+            lastSeenName = "Studio Speaker",
+            storedWatchedName = null
+        )
+
+        assertNull(actualName)
+    }
+
+    @Test
     fun safeActualNameForAliasEditUsesStoredWatchedNameWhenItDoesNotMatchAlias() {
         val actualName = DeviceDisplayName.safeActualNameForAliasEdit(
             alias = "Studio Speaker",

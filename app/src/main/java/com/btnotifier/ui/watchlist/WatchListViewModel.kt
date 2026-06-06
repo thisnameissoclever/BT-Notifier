@@ -9,6 +9,7 @@ import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.data.WatchedDevice
 import com.btnotifier.device.DeviceDisplayName
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class WatchListViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -56,7 +57,7 @@ class WatchListViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun renameDevice(address: String, newName: String, actualName: String?) {
         viewModelScope.launch {
-            val normalizedActualName = actualName?.trim()?.takeIf { it.isNotEmpty() }
+            val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName)
             val existing = metaDao.getByAddress(address)
             val watched = dao.getByAddress(address)
             metaDao.upsert(
@@ -85,7 +86,7 @@ class WatchListViewModel(application: Application) : AndroidViewModel(applicatio
                 customName = metadata?.customName,
                 lastSeenName = metadata?.lastSeenName
             )
-        }.sortedBy { it.displayName.lowercase() }
+        }.sortedBy { it.displayName.lowercase(Locale.ROOT) }
         watchedDevices.value = items
     }
 }

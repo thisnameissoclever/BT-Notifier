@@ -119,7 +119,7 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
             val existing = metaDao.getByAddress(device.address)
             metaDao.upsert(
                 (existing ?: DeviceMetadata(device.address)).copy(
-                    lastSeenName = normalizedName(device.name) ?: existing?.lastSeenName,
+                    lastSeenName = DeviceDisplayName.normalizeActualName(device.name) ?: existing?.lastSeenName,
                     isHidden = true
                 )
             )
@@ -134,7 +134,7 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     fun renameDevice(address: String, newName: String, actualName: String? = null) {
         viewModelScope.launch {
             val name = DeviceDisplayName.normalizeAlias(newName)
-            val normalizedActualName = normalizedName(actualName)
+            val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName)
             val existing = metaDao.getByAddress(address)
             val watched = dao.getByAddress(address)
             val updated = (existing ?: DeviceMetadata(address)).copy(
@@ -155,17 +155,13 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun rememberLastSeenName(address: String, actualName: String?) {
-        val normalizedActualName = normalizedName(actualName) ?: return
+        val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName) ?: return
         val existing = metaDao.getByAddress(address)
         if (existing != null) {
             metaDao.setLastSeenName(address, normalizedActualName)
         } else {
             metaDao.upsert(DeviceMetadata(address, lastSeenName = normalizedActualName))
         }
-    }
-
-    private fun normalizedName(name: String?): String? {
-        return name?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     override fun onCleared() {

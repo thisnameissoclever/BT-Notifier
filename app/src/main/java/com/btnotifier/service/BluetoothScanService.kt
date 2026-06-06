@@ -170,7 +170,7 @@ class BluetoothScanService : Service() {
     }
 
     private suspend fun rememberActualName(address: String, actualName: String?) {
-        val normalizedActualName = actualName?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName) ?: return
         val metaDao = db.deviceMetadataDao()
         val existing = metaDao.getByAddress(address)
         if (existing != null) {

@@ -41,7 +41,7 @@ class DeviceAdapter(
             }
             binding.ivSignal.setImageResource(signalIcon)
 
-            binding.root.setOnClickListener { onRenameClick(item) }
+            binding.root.setOnClickListener(null)
             binding.root.setOnLongClickListener {
                 onRenameClick(item)
                 true
