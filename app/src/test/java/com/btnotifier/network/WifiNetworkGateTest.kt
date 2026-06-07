@@ -82,7 +82,7 @@ class WifiNetworkGateTest {
     }
 
     @Test
-    fun evaluateBlocksBeforeMatchingWhenPermissionOrDeviceStateIsMissing() {
+    fun evaluateBlocksBeforeMatchingWhenPermissionsOrDeviceStateAreMissing() {
         val missingPermission = WifiNetworkGate.evaluate(
             gateEnabled = true,
             selectedSsid = "Home WiFi",
@@ -111,7 +111,7 @@ class WifiNetworkGateTest {
             wifiEnabled = false
         )
 
-        assertEquals(WifiNetworkGate.BlockedReason.MISSING_LOCATION_PERMISSION, missingPermission.blockedReason)
+        assertEquals(WifiNetworkGate.BlockedReason.MISSING_WIFI_PERMISSION, missingPermission.blockedReason)
         assertEquals(WifiNetworkGate.BlockedReason.LOCATION_DISABLED, locationDisabled.blockedReason)
         assertEquals(WifiNetworkGate.BlockedReason.WIFI_DISABLED, wifiDisabled.blockedReason)
     }

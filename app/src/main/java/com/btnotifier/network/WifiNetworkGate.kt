@@ -15,7 +15,7 @@ class WifiNetworkGate(private val context: Context) {
 
     enum class BlockedReason {
         NO_SELECTED_NETWORK,
-        MISSING_LOCATION_PERMISSION,
+        MISSING_WIFI_PERMISSION,
         LOCATION_DISABLED,
         WIFI_DISABLED,
         TARGET_NOT_FOUND
@@ -40,15 +40,15 @@ class WifiNetworkGate(private val context: Context) {
             selectedSsid = selectedSsid,
             currentSsid = currentSsid(),
             visibleSsids = availableSsids(requestScan = true).ssids,
-            hasLocationPermission = hasLocationPermission(),
+            hasLocationPermission = hasRequiredWifiPermissions(),
             locationEnabled = isLocationEnabled(),
             wifiEnabled = wifiManager?.isWifiEnabled == true
         )
     }
 
     fun availableSsids(requestScan: Boolean): AvailableNetworksResult {
-        if (!hasLocationPermission()) {
-            return AvailableNetworksResult(emptyList(), BlockedReason.MISSING_LOCATION_PERMISSION)
+        if (!hasRequiredWifiPermissions()) {
+            return AvailableNetworksResult(emptyList(), BlockedReason.MISSING_WIFI_PERMISSION)
         }
         if (!isLocationEnabled()) {
             return AvailableNetworksResult(emptyList(), BlockedReason.LOCATION_DISABLED)
@@ -63,7 +63,7 @@ class WifiNetworkGate(private val context: Context) {
                 @Suppress("DEPRECATION")
                 manager.startScan()
             } catch (_: SecurityException) {
-                return AvailableNetworksResult(emptyList(), BlockedReason.MISSING_LOCATION_PERMISSION)
+                return AvailableNetworksResult(emptyList(), BlockedReason.MISSING_WIFI_PERMISSION)
             }
         }
 
@@ -75,14 +75,14 @@ class WifiNetworkGate(private val context: Context) {
                 .mapNotNull { normalizeSsid(it.SSID) }
                 .forEach { networks.add(it) }
         } catch (_: SecurityException) {
-            return AvailableNetworksResult(emptyList(), BlockedReason.MISSING_LOCATION_PERMISSION)
+            return AvailableNetworksResult(emptyList(), BlockedReason.MISSING_WIFI_PERMISSION)
         }
 
         return AvailableNetworksResult(networks.sorted(), null)
     }
 
     private fun currentSsid(): String? {
-        if (!hasLocationPermission()) return null
+        if (!hasRequiredWifiPermissions()) return null
         val manager = wifiManager ?: return null
         return try {
             val ssid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -104,9 +104,17 @@ class WifiNetworkGate(private val context: Context) {
         }
     }
 
-    private fun hasLocationPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED
+    private fun hasRequiredWifiPermissions(): Boolean {
+        val hasFineLocation =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED
+        val hasNearbyWifi = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) ==
+                    PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        return hasFineLocation && hasNearbyWifi
     }
 
     private fun isLocationEnabled(): Boolean {
@@ -151,7 +159,7 @@ class WifiNetworkGate(private val context: Context) {
                 ?: return Decision(canScan = false, blockedReason = BlockedReason.NO_SELECTED_NETWORK)
 
             if (!hasLocationPermission) {
-                return Decision(canScan = false, blockedReason = BlockedReason.MISSING_LOCATION_PERMISSION)
+                return Decision(canScan = false, blockedReason = BlockedReason.MISSING_WIFI_PERMISSION)
             }
             if (!locationEnabled) {
                 return Decision(canScan = false, blockedReason = BlockedReason.LOCATION_DISABLED)

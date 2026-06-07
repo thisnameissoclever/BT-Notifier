@@ -179,7 +179,7 @@ class BluetoothScanService : Service() {
     private fun wifiBlockedNotificationText(reason: WifiNetworkGate.BlockedReason?): String {
         return when (reason) {
             WifiNetworkGate.BlockedReason.NO_SELECTED_NETWORK -> "Select Wi-Fi in Settings"
-            WifiNetworkGate.BlockedReason.MISSING_LOCATION_PERMISSION -> "Waiting for Wi-Fi permission"
+            WifiNetworkGate.BlockedReason.MISSING_WIFI_PERMISSION -> "Waiting for Wi-Fi permissions"
             WifiNetworkGate.BlockedReason.LOCATION_DISABLED -> "Waiting for Location to check Wi-Fi"
             WifiNetworkGate.BlockedReason.WIFI_DISABLED -> "Wi-Fi is off - waiting"
             WifiNetworkGate.BlockedReason.TARGET_NOT_FOUND, null -> "Waiting for selected Wi-Fi"

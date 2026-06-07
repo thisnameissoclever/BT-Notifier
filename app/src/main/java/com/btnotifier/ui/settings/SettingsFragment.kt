@@ -39,17 +39,17 @@ class SettingsFragment : Fragment() {
     }
 
     private val wifiPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
         if (_binding == null) return@registerForActivityResult
-        if (granted) {
+        if (hasRequiredWifiPermissions()) {
             refreshWifiNetworks(requestScan = true)
             persistWifiGateEnabledIfReady()
         } else {
             setWifiGateCheckedSilently(false)
             setWifiControlsEnabled(false)
             lifecycleScope.launch { prefs.setWifiScanGateEnabled(false) }
-            binding.tvWifiGateStatus.text = "Location permission is needed to detect Wi-Fi networks"
+            binding.tvWifiGateStatus.text = "Wi-Fi and Location permissions are needed to detect networks"
         }
     }
 
@@ -182,11 +182,11 @@ class SettingsFragment : Fragment() {
     }
 
     private fun requestWifiPermissionAndRefresh() {
-        if (hasWifiLocationPermission()) {
+        if (hasRequiredWifiPermissions()) {
             refreshWifiNetworks(requestScan = true)
             persistWifiGateEnabledIfReady()
         } else {
-            wifiPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            wifiPermissionLauncher.launch(requiredWifiPermissions().toTypedArray())
         }
     }
 
@@ -267,8 +267,8 @@ class SettingsFragment : Fragment() {
     ): String {
         if (!enabled) return "Background scans are not limited by Wi-Fi"
         return when (blockedReason) {
-            WifiNetworkGate.BlockedReason.MISSING_LOCATION_PERMISSION ->
-                "Location permission is needed to detect Wi-Fi networks"
+            WifiNetworkGate.BlockedReason.MISSING_WIFI_PERMISSION ->
+                "Wi-Fi and Location permissions are needed to detect networks"
             WifiNetworkGate.BlockedReason.LOCATION_DISABLED ->
                 "Location is off. Turn on Location to detect Wi-Fi networks"
             WifiNetworkGate.BlockedReason.WIFI_DISABLED ->
@@ -285,9 +285,19 @@ class SettingsFragment : Fragment() {
         }
     }
 
-    private fun hasWifiLocationPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED
+    private fun hasRequiredWifiPermissions(): Boolean {
+        return requiredWifiPermissions().all {
+            ContextCompat.checkSelfPermission(requireContext(), it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requiredWifiPermissions(): List<String> {
+        return buildList {
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+        }
     }
 
     override fun onDestroyView() {
