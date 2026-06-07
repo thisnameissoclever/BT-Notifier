@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -19,6 +20,8 @@ class PreferencesManager(private val context: Context) {
         val SCAN_DURATION_SECONDS = intPreferencesKey("scan_duration_seconds")
         val SERVICE_ENABLED = booleanPreferencesKey("service_enabled")
         val NOTIFY_ON_FIND = booleanPreferencesKey("notify_on_find")
+        val WIFI_SCAN_GATE_ENABLED = booleanPreferencesKey("wifi_scan_gate_enabled")
+        val SELECTED_WIFI_SSID = stringPreferencesKey("selected_wifi_ssid")
 
         const val DEFAULT_SCAN_INTERVAL = 5
         const val DEFAULT_SCAN_DURATION = 15
@@ -36,6 +39,12 @@ class PreferencesManager(private val context: Context) {
     val notifyOnFind: Flow<Boolean> = context.dataStore.data
         .map { it[NOTIFY_ON_FIND] ?: true }
 
+    val wifiScanGateEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[WIFI_SCAN_GATE_ENABLED] ?: false }
+
+    val selectedWifiSsid: Flow<String> = context.dataStore.data
+        .map { it[SELECTED_WIFI_SSID] ?: "" }
+
     suspend fun setScanIntervalMinutes(minutes: Int) {
         context.dataStore.edit { it[SCAN_INTERVAL_MINUTES] = minutes }
     }
@@ -50,5 +59,13 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun setNotifyOnFind(notify: Boolean) {
         context.dataStore.edit { it[NOTIFY_ON_FIND] = notify }
+    }
+
+    suspend fun setWifiScanGateEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[WIFI_SCAN_GATE_ENABLED] = enabled }
+    }
+
+    suspend fun setSelectedWifiSsid(ssid: String) {
+        context.dataStore.edit { it[SELECTED_WIFI_SSID] = ssid.trim() }
     }
 }

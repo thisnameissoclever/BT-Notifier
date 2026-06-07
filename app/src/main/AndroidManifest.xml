@@ -17,9 +17,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"
         tools:targetApi="s" />
 
-    <!-- Location required for BT scanning on Android < 12 -->
+    <!-- Location required for BT scanning on Android < 12 and optional Wi-Fi detection -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Wi-Fi state and scans for optional Wi-Fi-gated background scanning -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Background / foreground service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

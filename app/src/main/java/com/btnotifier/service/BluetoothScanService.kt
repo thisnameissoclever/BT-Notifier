@@ -12,6 +12,7 @@ import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.data.PreferencesManager
 import com.btnotifier.device.DeviceDisplayName
+import com.btnotifier.network.WifiNetworkGate
 import com.btnotifier.scanner.BluetoothScanner
 import com.btnotifier.utils.NotificationHelper
 import kotlinx.coroutines.*
@@ -33,12 +34,16 @@ class BluetoothScanService : Service() {
     private lateinit var scanner: BluetoothScanner
     private lateinit var prefs: PreferencesManager
     private lateinit var db: AppDatabase
+    private lateinit var wifiNetworkGate: WifiNetworkGate
 
     // address -> timestamp of last alert sent
     private val lastAlertTime = mutableMapOf<String, Long>()
 
     private var scanDurationSeconds = PreferencesManager.DEFAULT_SCAN_DURATION
     private var scanIntervalMinutes = PreferencesManager.DEFAULT_SCAN_INTERVAL
+    private var wifiScanGateEnabled = false
+    private var selectedWifiSsid = ""
+    private var prefsAndScheduleStarted = false
 
     private val periodicScanRunnable = object : Runnable {
         override fun run() {
@@ -53,6 +58,7 @@ class BluetoothScanService : Service() {
         scanner = BluetoothScanner(applicationContext)
         prefs = PreferencesManager(applicationContext)
         db = AppDatabase.getInstance(applicationContext)
+        wifiNetworkGate = WifiNetworkGate(applicationContext)
         NotificationHelper.createChannels(this)
     }
 
@@ -96,9 +102,14 @@ class BluetoothScanService : Service() {
     }
 
     private fun loadPrefsAndSchedule() {
+        if (prefsAndScheduleStarted) return
+        prefsAndScheduleStarted = true
+
         serviceScope.launch {
             scanIntervalMinutes = prefs.scanIntervalMinutes.first()
             scanDurationSeconds = prefs.scanDurationSeconds.first()
+            wifiScanGateEnabled = prefs.wifiScanGateEnabled.first()
+            selectedWifiSsid = prefs.selectedWifiSsid.first()
 
             // Watch for preference changes
             launch {
@@ -111,6 +122,16 @@ class BluetoothScanService : Service() {
                     scanDurationSeconds = seconds
                 }
             }
+            launch {
+                prefs.wifiScanGateEnabled.collect { enabled ->
+                    wifiScanGateEnabled = enabled
+                }
+            }
+            launch {
+                prefs.selectedWifiSsid.collect { ssid ->
+                    selectedWifiSsid = ssid
+                }
+            }
 
             // Start the first scan immediately, then schedule
             handler.post(periodicScanRunnable)
@@ -118,6 +139,27 @@ class BluetoothScanService : Service() {
     }
 
     private fun performScan() {
+        serviceScope.launch {
+            val wifiDecision = if (wifiScanGateEnabled) {
+                wifiNetworkGate.evaluate(
+                    gateEnabled = true,
+                    selectedSsid = selectedWifiSsid
+                )
+            } else {
+                null
+            }
+
+            withContext(Dispatchers.Main) {
+                if (wifiDecision != null && !wifiDecision.canScan) {
+                    updateNotification(wifiBlockedNotificationText(wifiDecision.blockedReason))
+                    return@withContext
+                }
+                performBluetoothScan()
+            }
+        }
+    }
+
+    private fun performBluetoothScan() {
         if (!scanner.isBluetoothEnabled) {
             updateNotification("Bluetooth is off - waiting")
             return
@@ -132,6 +174,16 @@ class BluetoothScanService : Service() {
             checkForWatchedDevices()
             updateNotification("Next scan in $scanIntervalMinutes min")
         }, scanDurationSeconds * 1000L)
+    }
+
+    private fun wifiBlockedNotificationText(reason: WifiNetworkGate.BlockedReason?): String {
+        return when (reason) {
+            WifiNetworkGate.BlockedReason.NO_SELECTED_NETWORK -> "Select Wi-Fi in Settings"
+            WifiNetworkGate.BlockedReason.MISSING_LOCATION_PERMISSION -> "Waiting for Wi-Fi permission"
+            WifiNetworkGate.BlockedReason.LOCATION_DISABLED -> "Waiting for Location to check Wi-Fi"
+            WifiNetworkGate.BlockedReason.WIFI_DISABLED -> "Wi-Fi is off - waiting"
+            WifiNetworkGate.BlockedReason.TARGET_NOT_FOUND, null -> "Waiting for selected Wi-Fi"
+        }
     }
 
     private fun checkForWatchedDevices() {
