@@ -131,4 +131,21 @@ class WifiNetworkGateTest {
         assertFalse(decision.canScan)
         assertEquals(WifiNetworkGate.BlockedReason.TARGET_NOT_FOUND, decision.blockedReason)
     }
+
+    @Test
+    fun evaluateReportsAvailabilityBlockedReasonWhenNoNetworkMatches() {
+        val decision = WifiNetworkGate.evaluate(
+            gateEnabled = true,
+            selectedSsid = "Home WiFi",
+            currentSsid = null,
+            visibleSsids = emptyList(),
+            hasLocationPermission = true,
+            locationEnabled = true,
+            wifiEnabled = true,
+            availabilityBlockedReason = WifiNetworkGate.BlockedReason.MISSING_WIFI_PERMISSION
+        )
+
+        assertFalse(decision.canScan)
+        assertEquals(WifiNetworkGate.BlockedReason.MISSING_WIFI_PERMISSION, decision.blockedReason)
+    }
 }

@@ -35,14 +35,33 @@ class WifiNetworkGate(private val context: Context) {
         get() = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
 
     fun evaluate(gateEnabled: Boolean, selectedSsid: String): Decision {
+        val hasLocationPermission = hasRequiredWifiPermissions()
+        val locationEnabled = isLocationEnabled()
+        val wifiEnabled = wifiManager?.isWifiEnabled == true
+        val currentSsid = currentSsid()
+        val currentDecision = evaluate(
+            gateEnabled = gateEnabled,
+            selectedSsid = selectedSsid,
+            currentSsid = currentSsid,
+            visibleSsids = emptyList(),
+            hasLocationPermission = hasLocationPermission,
+            locationEnabled = locationEnabled,
+            wifiEnabled = wifiEnabled
+        )
+        if (currentDecision.canScan || currentDecision.blockedReason != BlockedReason.TARGET_NOT_FOUND) {
+            return currentDecision
+        }
+
+        val availableNetworks = availableSsids(requestScan = true)
         return evaluate(
             gateEnabled = gateEnabled,
             selectedSsid = selectedSsid,
-            currentSsid = currentSsid(),
-            visibleSsids = availableSsids(requestScan = true).ssids,
-            hasLocationPermission = hasRequiredWifiPermissions(),
-            locationEnabled = isLocationEnabled(),
-            wifiEnabled = wifiManager?.isWifiEnabled == true
+            currentSsid = currentSsid,
+            visibleSsids = availableNetworks.ssids,
+            hasLocationPermission = hasLocationPermission,
+            locationEnabled = locationEnabled,
+            wifiEnabled = wifiEnabled,
+            availabilityBlockedReason = availableNetworks.blockedReason
         )
     }
 
@@ -104,6 +123,10 @@ class WifiNetworkGate(private val context: Context) {
         }
     }
 
+    fun hasLocationForegroundPrerequisites(): Boolean {
+        return hasRequiredWifiPermissions() && isLocationEnabled()
+    }
+
     private fun hasRequiredWifiPermissions(): Boolean {
         val hasFineLocation =
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -151,7 +174,8 @@ class WifiNetworkGate(private val context: Context) {
             visibleSsids: List<String>,
             hasLocationPermission: Boolean,
             locationEnabled: Boolean,
-            wifiEnabled: Boolean
+            wifiEnabled: Boolean,
+            availabilityBlockedReason: BlockedReason? = null
         ): Decision {
             if (!gateEnabled) return Decision(canScan = true, blockedReason = null)
 
@@ -175,7 +199,7 @@ class WifiNetworkGate(private val context: Context) {
             return if (matched) {
                 Decision(canScan = true, blockedReason = null)
             } else {
-                Decision(canScan = false, blockedReason = BlockedReason.TARGET_NOT_FOUND)
+                Decision(canScan = false, blockedReason = availabilityBlockedReason ?: BlockedReason.TARGET_NOT_FOUND)
             }
         }
     }

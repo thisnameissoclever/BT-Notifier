@@ -1,5 +1,6 @@
 package com.btnotifier.service
 
+import android.app.Notification
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -24,6 +25,7 @@ class BluetoothScanService : Service() {
         private const val TAG = "BTScanService"
         const val ACTION_START = "com.btnotifier.START_SCAN"
         const val ACTION_STOP = "com.btnotifier.STOP_SCAN"
+        const val ACTION_SCAN_NOW = "com.btnotifier.SCAN_NOW"
 
         // Alert cooldown: don't re-notify for the same device within this window
         private const val ALERT_COOLDOWN_MS = 5 * 60 * 1000L
@@ -44,6 +46,7 @@ class BluetoothScanService : Service() {
     private var wifiScanGateEnabled = false
     private var selectedWifiSsid = ""
     private var prefsAndScheduleStarted = false
+    private var activeForegroundServiceTypes = 0
 
     private val periodicScanRunnable = object : Runnable {
         override fun run() {
@@ -63,6 +66,7 @@ class BluetoothScanService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val scanNow = intent?.action == ACTION_SCAN_NOW
         when (intent?.action) {
             ACTION_STOP -> {
                 stopForegroundService()
@@ -71,23 +75,21 @@ class BluetoothScanService : Service() {
         }
 
         val notification = NotificationHelper.buildServiceNotification(this, "Bluetooth scanning active")
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NotificationHelper.NOTIFICATION_ID_SERVICE,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                )
+        val initialForegroundServiceTypes =
+            if (prefsAndScheduleStarted &&
+                wifiScanGateEnabled &&
+                wifiNetworkGate.hasLocationForegroundPrerequisites()
+            ) {
+                wifiForegroundServiceType()
             } else {
-                startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
+                baseForegroundServiceType()
             }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Cannot start foreground service - Bluetooth permission not granted", e)
+        if (!startForegroundWithTypes(initialForegroundServiceTypes, notification)) {
             stopSelf()
             return START_NOT_STICKY
         }
 
-        loadPrefsAndSchedule()
+        loadPrefsAndSchedule(scanNow)
 
         return START_STICKY
     }
@@ -101,8 +103,20 @@ class BluetoothScanService : Service() {
         serviceScope.cancel()
     }
 
-    private fun loadPrefsAndSchedule() {
-        if (prefsAndScheduleStarted) return
+    private fun loadPrefsAndSchedule(scanNow: Boolean) {
+        if (prefsAndScheduleStarted) {
+            serviceScope.launch {
+                scanIntervalMinutes = prefs.scanIntervalMinutes.first()
+                scanDurationSeconds = prefs.scanDurationSeconds.first()
+                wifiScanGateEnabled = prefs.wifiScanGateEnabled.first()
+                selectedWifiSsid = prefs.selectedWifiSsid.first()
+                withContext(Dispatchers.Main) {
+                    updateForegroundServiceTypesForWifiGate(wifiScanGateEnabled)
+                }
+                if (scanNow) performScan()
+            }
+            return
+        }
         prefsAndScheduleStarted = true
 
         serviceScope.launch {
@@ -110,6 +124,10 @@ class BluetoothScanService : Service() {
             scanDurationSeconds = prefs.scanDurationSeconds.first()
             wifiScanGateEnabled = prefs.wifiScanGateEnabled.first()
             selectedWifiSsid = prefs.selectedWifiSsid.first()
+
+            withContext(Dispatchers.Main) {
+                updateForegroundServiceTypesForWifiGate(wifiScanGateEnabled)
+            }
 
             // Watch for preference changes
             launch {
@@ -125,6 +143,9 @@ class BluetoothScanService : Service() {
             launch {
                 prefs.wifiScanGateEnabled.collect { enabled ->
                     wifiScanGateEnabled = enabled
+                    withContext(Dispatchers.Main) {
+                        updateForegroundServiceTypesForWifiGate(enabled)
+                    }
                 }
             }
             launch {
@@ -141,6 +162,15 @@ class BluetoothScanService : Service() {
     private fun performScan() {
         serviceScope.launch {
             val wifiDecision = if (wifiScanGateEnabled) {
+                val foregroundReady = withContext(Dispatchers.Main) {
+                    updateForegroundServiceTypesForWifiGate(enabled = true)
+                }
+                if (!foregroundReady) {
+                    withContext(Dispatchers.Main) {
+                        updateNotification("Open app to enable Wi-Fi checks")
+                    }
+                    return@launch
+                }
                 wifiNetworkGate.evaluate(
                     gateEnabled = true,
                     selectedSsid = selectedWifiSsid
@@ -151,11 +181,70 @@ class BluetoothScanService : Service() {
 
             withContext(Dispatchers.Main) {
                 if (wifiDecision != null && !wifiDecision.canScan) {
+                    Log.i(TAG, "Wi-Fi gate blocked scan: reason=${wifiDecision.blockedReason}")
                     updateNotification(wifiBlockedNotificationText(wifiDecision.blockedReason))
                     return@withContext
                 }
+                if (wifiDecision != null) {
+                    Log.i(TAG, "Wi-Fi gate allowed scan")
+                }
                 performBluetoothScan()
             }
+        }
+    }
+
+    private fun updateForegroundServiceTypesForWifiGate(enabled: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+
+        val desiredTypes = if (enabled && wifiNetworkGate.hasLocationForegroundPrerequisites()) {
+            wifiForegroundServiceType()
+        } else {
+            baseForegroundServiceType()
+        }
+        if (activeForegroundServiceTypes == desiredTypes) return true
+
+        val notification = NotificationHelper.buildServiceNotification(this, "Bluetooth scanning active")
+        val updated = startForegroundWithTypes(desiredTypes, notification)
+        if (!updated && desiredTypes == wifiForegroundServiceType()) {
+            Log.w(TAG, "Cannot add location foreground-service type for Wi-Fi checks")
+            return false
+        }
+        return updated
+    }
+
+    private fun startForegroundWithTypes(types: Int, notification: Notification): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NotificationHelper.NOTIFICATION_ID_SERVICE,
+                    notification,
+                    types
+                )
+                activeForegroundServiceTypes = types
+            } else {
+                startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
+            }
+            true
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Cannot start foreground service with types=$types", e)
+            false
+        }
+    }
+
+    private fun baseForegroundServiceType(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        } else {
+            0
+        }
+    }
+
+    private fun wifiForegroundServiceType(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        } else {
+            0
         }
     }
 
@@ -165,6 +254,7 @@ class BluetoothScanService : Service() {
             return
         }
 
+        Log.i(TAG, "Bluetooth scan started")
         updateNotification("Scanning for devices...")
         scanner.startScan()
 
@@ -172,6 +262,7 @@ class BluetoothScanService : Service() {
         handler.postDelayed({
             scanner.stopScan()
             checkForWatchedDevices()
+            Log.i(TAG, "Bluetooth scan stopped")
             updateNotification("Next scan in $scanIntervalMinutes min")
         }, scanDurationSeconds * 1000L)
     }
@@ -250,6 +341,7 @@ class BluetoothScanService : Service() {
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
+        activeForegroundServiceTypes = 0
         stopSelf()
     }
 }
