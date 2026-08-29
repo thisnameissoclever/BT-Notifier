@@ -4,6 +4,8 @@ plugins {
     id 'com.google.devtools.ksp'
 }
 
+layout.buildDirectory = rootProject.layout.buildDirectory.dir('app')
+
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
 if (localPropertiesFile.exists()) {
@@ -23,9 +25,17 @@ def hasBtNotifierDebugSigning =
         btNotifierDebugKeyAlias != null &&
         btNotifierDebugKeyPassword != null
 
+def btNotifierUploadStoreFile = rootProject.file('.local-signing/bt-notifier-upload.jks')
+def btNotifierUploadStorePassword = System.getenv('BT_NOTIFIER_UPLOAD_PASSWORD')
+def btNotifierUploadKeyAlias = 'bt-notifier-upload'
+def hasBtNotifierUploadSigning =
+        btNotifierUploadStoreFile.exists() &&
+        btNotifierUploadStorePassword != null &&
+        !btNotifierUploadStorePassword.isBlank()
+
 android {
     namespace 'com.btnotifier'
-    compileSdk 34
+    compileSdk 35
 
     signingConfigs {
         if (hasBtNotifierDebugSigning) {
@@ -36,14 +46,23 @@ android {
                 keyPassword btNotifierDebugKeyPassword
             }
         }
+
+        if (hasBtNotifierUploadSigning) {
+            btNotifierUpload {
+                storeFile btNotifierUploadStoreFile
+                storePassword btNotifierUploadStorePassword
+                keyAlias btNotifierUploadKeyAlias
+                keyPassword btNotifierUploadStorePassword
+            }
+        }
     }
 
     defaultConfig {
         applicationId "com.btnotifier"
         minSdk 23
-        targetSdk 34
+        targetSdk 35
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -55,6 +74,9 @@ android {
         }
 
         release {
+            if (hasBtNotifierUploadSigning) {
+                signingConfig signingConfigs.btNotifierUpload
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

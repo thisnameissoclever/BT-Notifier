@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d47a1"/>
+      <stop offset="1" stop-color="#1976d2"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.22" cy="0.5" r="0.55">
+      <stop offset="0" stop-color="#64b5f6" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#64b5f6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="500" fill="url(#background)"/>
+  <rect width="1024" height="500" fill="url(#glow)"/>
+  <circle cx="235" cy="250" r="155" fill="none" stroke="#90caf9" stroke-opacity="0.18" stroke-width="2"/>
+  <circle cx="235" cy="250" r="116" fill="none" stroke="#90caf9" stroke-opacity="0.30" stroke-width="3"/>
+  <circle cx="235" cy="250" r="82" fill="#1565c0" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+  <path fill="#ffffff" transform="translate(-21 0) scale(4.74074074)" d="M54,20c-2,0 -4,0 -4,0v27.3L37.5,34.8l-2.8,2.8L47.5,50.4 34.7,63.2l2.8,2.8L50,53.5V81h4V53.5l12.5,12.5 2.8,-2.8L56.5,50.4l12.8,-12.8 -2.8,-2.8L54,47.3V20z"/>
+  <text x="430" y="225" fill="#ffffff" font-family="Arial, sans-serif" font-size="66" font-weight="700">BT Notifier</text>
+  <text x="434" y="282" fill="#e3f2fd" font-family="Arial, sans-serif" font-size="29">Find nearby devices. Know when they return.</text>
+  <rect x="434" y="321" width="116" height="5" rx="2.5" fill="#90caf9"/>
+</svg>
