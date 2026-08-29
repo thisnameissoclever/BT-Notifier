@@ -28,3 +28,7 @@ jarsigner -verify -verbose -certs .\build\app\outputs\bundle\release\app-release
 ## Store copy and privacy policy
 
 The source listing copy is in `docs/play-store-listing.md`. GitHub Pages serves the support page and privacy policy from `docs/index.html` and `docs/privacy-policy.html`.
+
+## Foreground service declaration
+
+The Play Console declaration uses the demonstration video at `docs/assets/foreground-service-demo.mp4`. The recording shows the user enabling background Bluetooth scans, the persistent service notification, the optional Wi-Fi scan limit, and its location permission prompt.
