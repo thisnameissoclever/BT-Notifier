@@ -1,5 +1,12 @@
 # Lessons Learned
 
+## 2026-10-22: Legacy Pages publishing starts unrelated hosted builds
+
+1. What happened: Preparing an Android-only update exposed a legacy Pages publishing configuration tied to `main:/docs`. A main-branch push could start a hosted Pages build even when the support site had no changes.
+2. Root cause: Legacy branch publishing had no path filter separating site inputs from application code and operational documentation.
+3. Prevention rule: Use GitHub Actions publishing with paths limited to the actual support-site HTML, assets, and site-specific configuration. Keep deployment permissions and the protected Pages environment. Change the remote publishing mode before merging an application-only update so the legacy trigger cannot run first.
+4. Verification: Parse the workflow locally, test both included and excluded paths, confirm that the proposed main-branch diff matches no deployment input, and review the configuration independently. After publication, verify the remote mode, live support and privacy-policy URLs, and the absence of an unrelated hosted run for the checked revision.
+
 ## 2026-10-22: Target SDK upgrades require a supported build stack
 
 1. What happened: The app targeted API 35 and Play Console required API 36 or higher. The build also suppressed an unsupported compile-SDK warning from Android Gradle plugin 8.2.2.

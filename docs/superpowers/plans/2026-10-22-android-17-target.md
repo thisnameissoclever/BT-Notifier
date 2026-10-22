@@ -22,6 +22,7 @@
 5. Use explicit property assignments in the Groovy build configuration and pin wrapper line endings for Unix and Windows.
 6. Upgrade Room to 2.8.4. Compare generated schema identity and table definitions against the baseline build.
 7. Document build prerequisites and preserve the distinction between local verification and Play approval.
+8. Apply the separately approved filtered support-site workflow. Preserve the protected Pages environment, switch remote Pages publishing to Actions before merging, and verify that application and Markdown-only changes do not start a deployment.
 
 ## Verification
 
@@ -37,3 +38,4 @@
 2. [Built-in Kotlin migration](https://developer.android.com/build/migrate-to-built-in-kotlin)
 3. [Kotlin Symbol Processing 2.3.12](https://github.com/google/ksp/releases/tag/2.3.12)
 4. [Room releases and KSP2 support](https://developer.android.com/jetpack/androidx/releases/room)
+5. [Custom GitHub Pages workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
