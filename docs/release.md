@@ -1,5 +1,19 @@
 # Google Play release process
 
+## Build prerequisites
+
+Use Java 17 or newer and install Android SDK Platform 37.0. The checked-in Gradle wrapper selects Gradle 9.3.1. Android Gradle plugin 9.1.1 supplies the Kotlin compiler; Kotlin Symbol Processing 2.3.12 generates the Room 2.8.4 database code. Keep the Room compiler and runtime versions aligned.
+
+The app compiles against and targets Android 17 (API 37). It supports Android 6.0 (API 23) and later. Confirm that the version code exceeds every bundle already uploaded to Play Console before building an update.
+
+Run verification locally. Use one worker on a shared machine:
+
+```powershell
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug bundleRelease --max-workers=1 --no-daemon
+```
+
+Without the upload-signing environment variable, `bundleRelease` produces an unsigned bundle. Use the signing script below for a bundle that can be uploaded to Play. Successful compilation does not verify screen-off scanning, reboot recovery, device battery restrictions, or Play acceptance; test those separately before release.
+
 ## Build a signed bundle
 
 Run the release script from PowerShell:

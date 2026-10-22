@@ -1,5 +1,12 @@
 # Lessons Learned
 
+## 2026-10-22: Target SDK upgrades require a supported build stack
+
+1. What happened: The app targeted API 35 and Play Console required API 36 or higher. The build also suppressed an unsupported compile-SDK warning from Android Gradle plugin 8.2.2.
+2. Root cause: The SDK target and build-plugin support had drifted apart. Suppressing the warning concealed the unsupported tool combination.
+3. Prevention rule: Check Google's API compatibility table before raising compile and target SDK levels. Upgrade the complete Gradle wrapper and compiler tooling together, then remove obsolete suppressions. With Android Gradle plugin 9, use its built-in Kotlin compiler and a compatible Kotlin Symbol Processing plugin. Check annotation-processor compatibility too: Room 2.6.1 fails with `unexpected jvm signature V` under the newer engine, while Room 2.7 and later support KSP2. Keep Room compiler and runtime versions aligned, with separate approval for that dependency upgrade.
+4. Verification: Run local unit tests, lint, APK assembly, and bundle assembly. Inspect the packaged manifest for the intended target and minimum SDK levels. Verify screen-off scans and reboot recovery separately on an available device before store submission.
+
 ## 2026-06-07: Wi-Fi gate background service needs location foreground type
 
 1. What happened: Wi-Fi-gated scans could stay blocked with `Waiting for selected Wi-Fi` even while the phone was connected to the selected SSID.

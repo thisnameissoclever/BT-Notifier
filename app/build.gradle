@@ -1,6 +1,5 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
     id 'com.google.devtools.ksp'
 }
 
@@ -34,65 +33,61 @@ def hasBtNotifierUploadSigning =
         !btNotifierUploadStorePassword.isBlank()
 
 android {
-    namespace 'com.btnotifier'
-    compileSdk 35
+    namespace = 'com.btnotifier'
+    compileSdk = 37
 
     signingConfigs {
         if (hasBtNotifierDebugSigning) {
             btNotifierDebug {
-                storeFile btNotifierDebugStoreFile
-                storePassword btNotifierDebugStorePassword
-                keyAlias btNotifierDebugKeyAlias
-                keyPassword btNotifierDebugKeyPassword
+                storeFile = btNotifierDebugStoreFile
+                storePassword = btNotifierDebugStorePassword
+                keyAlias = btNotifierDebugKeyAlias
+                keyPassword = btNotifierDebugKeyPassword
             }
         }
 
         if (hasBtNotifierUploadSigning) {
             btNotifierUpload {
-                storeFile btNotifierUploadStoreFile
-                storePassword btNotifierUploadStorePassword
-                keyAlias btNotifierUploadKeyAlias
-                keyPassword btNotifierUploadStorePassword
+                storeFile = btNotifierUploadStoreFile
+                storePassword = btNotifierUploadStorePassword
+                keyAlias = btNotifierUploadKeyAlias
+                keyPassword = btNotifierUploadStorePassword
             }
         }
     }
 
     defaultConfig {
-        applicationId "com.btnotifier"
-        minSdk 23
-        targetSdk 35
-        versionCode 1
-        versionName "1.0.0"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        applicationId = "com.btnotifier"
+        minSdk = 23
+        targetSdk = 37
+        versionCode = 2
+        versionName = "1.0.1"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         debug {
             if (hasBtNotifierDebugSigning) {
-                signingConfig signingConfigs.btNotifierDebug
+                signingConfig = signingConfigs.btNotifierDebug
             }
         }
 
         release {
             if (hasBtNotifierUploadSigning) {
-                signingConfig signingConfigs.btNotifierUpload
+                signingConfig = signingConfigs.btNotifierUpload
             }
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = '17'
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     buildFeatures {
-        viewBinding true
+        viewBinding = true
     }
 }
 
@@ -116,9 +111,10 @@ dependencies {
     implementation 'androidx.fragment:fragment-ktx:1.6.2'
 
     // Room
-    implementation 'androidx.room:room-runtime:2.6.1'
-    implementation 'androidx.room:room-ktx:2.6.1'
-    ksp 'androidx.room:room-compiler:2.6.1'
+    def roomVersion = '2.8.4'
+    implementation "androidx.room:room-runtime:$roomVersion"
+    implementation "androidx.room:room-ktx:$roomVersion"
+    ksp "androidx.room:room-compiler:$roomVersion"
 
     // DataStore
     implementation 'androidx.datastore:datastore-preferences:1.0.0'
