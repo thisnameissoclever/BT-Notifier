@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.withTransaction
 import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.DetectionSource
-import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.device.DeviceDisplayName
 import com.btnotifier.scanner.ScannedDevice
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +29,6 @@ class ObservationRepository internal constructor(
                 val newest = addressSamples.maxBy { it.observedAt }
                 val actualName = DeviceDisplayName.normalizeActualName(newest.observedName)
                 db.watchedDeviceDao().recordObservation(newest.address, newest.observedAt, actualName)
-                db.deviceMetadataDao().insertIfAbsent(DeviceMetadata(newest.address))
                 db.deviceMetadataDao().recordObservation(newest.address, newest.observedAt, actualName)
             }
             samples.filter { HistoryPolicy.shouldRetain(it.observedAt, at) }.forEach { sample ->

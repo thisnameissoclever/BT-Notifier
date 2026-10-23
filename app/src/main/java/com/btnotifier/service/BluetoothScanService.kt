@@ -17,6 +17,7 @@ import com.btnotifier.device.DeviceDisplayName
 import com.btnotifier.network.WifiNetworkGate
 import com.btnotifier.scanner.BluetoothScanner
 import com.btnotifier.scanner.ScanLease
+import com.btnotifier.scanner.ScanCycleOutcome
 import com.btnotifier.scanner.ScannedDevice
 import com.btnotifier.utils.NotificationHelper
 import kotlinx.coroutines.*
@@ -151,6 +152,10 @@ class BluetoothScanService : Service() {
         val token = cycles.begin()
         cycleRunning = true
         try {
+            if (config.addresses.isEmpty()) {
+                publish("No watched devices")
+                return
+            }
             if (!gateAllows(config)) return
             currentCoroutineContext().ensureActive()
             if (!started || !cycles.isCurrent(token)) return
@@ -160,21 +165,27 @@ class BluetoothScanService : Service() {
                 return
             }
             activeLease = lease
-            publish(if (config.addresses.isEmpty()) "No watched devices" else "Scanning", scanner.status.value.error)
-            if (config.addresses.isNotEmpty()) delay(config.duration * 1000L)
+            publish(if (scanner.status.value.isScanning) "Scanning" else "Blocked", scanner.status.value.error)
+            if (scanner.status.value.isScanning) delay(config.duration * 1000L)
             currentCoroutineContext().ensureActive()
             if (!cycles.isCurrent(token) || !started || !gateAllows(config)) return
-            val results = lease.devices.value.values.toList()
+            // Snapshot health before release, whose normal transport shutdown is not a scan failure.
+            val completion = lease.health.finish(lease.devices.value.values)
+            val results = completion.observations
             scanner.release(lease)
             activeLease = null
             // Persist actual observations before any delivery preference or cooldown decision.
             ObservationRepository.get(applicationContext).record(results, DetectionSource.BACKGROUND)
             currentCoroutineContext().ensureActive()
             if (!cycles.isCurrent(token) || !started) return
+            if (completion.outcome != ScanCycleOutcome.COMPLETED) {
+                publish(if (completion.outcome == ScanCycleOutcome.NO_TARGETS) "No watched devices" else "Blocked", completion.error)
+                return
+            }
             prefs.recordBackgroundScan(System.currentTimeMillis(), results.size)
             evaluateAlerts(results, token)
             currentCoroutineContext().ensureActive()
-            if (started && cycles.isCurrent(token)) publish("Waiting", scanner.status.value.error)
+            if (started && cycles.isCurrent(token)) publish("Waiting", completion.error)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             Log.e("BTScanService", "background scan cycle failed", error)

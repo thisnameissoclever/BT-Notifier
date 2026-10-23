@@ -44,4 +44,20 @@ class ScanLeaseRegistryTest {
         registry.release(token)
         assertFalse(registry.acceptsBleGeneration(current))
     }
+
+    @Test fun failedRegistrationWaitsForExplicitAcquireThenRetriesSameFilters() {
+        val registry = ScanLeaseRegistry()
+        registry.acquire(setOf("A"))
+        val failed = registry.beginBleRegistration(setOf("A"))
+        assertFalse(registry.shouldStartBle(explicitAcquire = true))
+        assertTrue(registry.failBleGeneration(failed))
+        assertFalse(registry.acceptsBleGeneration(failed))
+        assertFalse(registry.shouldStartBle(explicitAcquire = false))
+        registry.acquire(setOf("A"))
+        assertTrue(registry.shouldStartBle(explicitAcquire = true))
+        val recovered = registry.beginBleRegistration(setOf("A"))
+        assertTrue(registry.acceptsBleGeneration(recovered))
+        assertFalse(registry.failBleGeneration(failed))
+        assertFalse(registry.shouldStartBle(explicitAcquire = true))
+    }
 }

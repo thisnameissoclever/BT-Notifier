@@ -1,5 +1,26 @@
 # Lessons Learned
 
+## 2026-10-23: Restore settings views before reading authoritative preferences
+
+1. What happened: Returning to Settings after resuming monitoring restored an old unchecked switch and persisted that value, stopping the service again.
+2. Root cause: A fast preferences read completed in `onViewCreated` before Android restored saved widget state. The restored switch then invoked its already-active change listener.
+3. Prevention rule: Suppress persistence listeners during view restoration. Load authoritative preferences after `onViewStateRestored` so saved widget state cannot overwrite current settings.
+4. Verification: Visit Settings with monitoring disabled, resume monitoring elsewhere, then return. Verify that both the persisted preference and switch remain enabled until the user turns monitoring off.
+
+## 2026-10-23: Synchronize test input with Android task transitions
+
+1. What happened: Finder's Back assertion repeatedly failed after an activity stop/resume transition, although the real button listener remained attached.
+2. Root cause: Espresso 3.5.1 injected coordinates before the API 36 task transition finished. Android's InputDispatcher logged `No new touched window` for the attempted tap. The application never received the input.
+3. Prevention rule: Use the public instrumentation input method for a real tap after task transitions when the installed test library lacks Android's window/input synchronization. Keep actual button and navigation assertions. Do not replace the click with a direct handler call or change production navigation to compensate for dropped test input.
+4. Verification: Compare input and transition timestamps, then run the real feature flow with platform-synchronized input. Leave Finder scanning before stopping its activity and verify that its lease is released and the screen returns idle.
+
+## 2026-10-23: Keep routine observations inside bounded storage
+
+1. What happened: Review found that each detected address created permanent device metadata, bypassing history retention and Clear History.
+2. Root cause: Routine observations were copied into the same table as explicit aliases, hidden choices, and legacy retained names.
+3. Prevention rule: Store observations for unconfigured devices only in the bounded history table. Update existing metadata and watched timestamps without creating permanent rows for every detected address. Preserve configured and legacy metadata when clearing history.
+4. Verification: Ingest thousands of unique addresses and verify that no metadata rows are created. Clear history and verify that watch-list timestamps, aliases, hidden choices, and legacy metadata remain intact.
+
 ## 2026-10-23: Scan consumers need independent lifetimes and observations
 
 1. What happened: Background monitoring, manual scans, and delayed completion callbacks could stop replacement scans or publish state after a scan had ended. Alert settings also controlled whether sightings updated last-seen timestamps.

@@ -37,10 +37,11 @@ data class ScannerStatus(
     val error: String? = null
 )
 
-class ScanLease internal constructor(internal val token: Long, val owner: String) {
+class ScanLease internal constructor(internal val token: Long, val owner: String, hasTargets: Boolean) {
     internal val acquiredAtNanos = SystemClock.elapsedRealtimeNanos()
     internal val results = MutableStateFlow<Map<String, ScannedDevice>>(emptyMap())
     val devices: StateFlow<Map<String, ScannedDevice>> = results
+    internal val health = ScanCycleHealth(hasTargets)
 }
 
 class BluetoothScanner private constructor(private val context: Context) {
@@ -61,7 +62,6 @@ class BluetoothScanner private constructor(private val context: Context) {
     private val errors = linkedMapOf<String, String>()
     private var bleScanner: BluetoothLeScanner? = null
     private var bleCallback: ScanCallback? = null
-    private var appliedAddresses: Set<String>? = emptySet()
     private var classicReceiver: BroadcastReceiver? = null
     private var classicGeneration = 0L
     private var bleRunning = false
@@ -89,9 +89,11 @@ class BluetoothScanner private constructor(private val context: Context) {
             }
         }
         errors.remove("availability")
-        val lease = ScanLease(registry.acquire(normalized), owner)
+        val lease = ScanLease(registry.acquire(normalized), owner, normalized == null || normalized.isNotEmpty())
+        reconcile(explicitAcquire = normalized == null || normalized.isNotEmpty())
+        // Startup can publish intermediate transport states. This lease begins after reconciliation.
         leases[lease.token] = lease
-        reconcile()
+        lease.health.observe(mutableStatus.value)
         lease
     }
 
@@ -104,14 +106,14 @@ class BluetoothScanner private constructor(private val context: Context) {
 
     fun clearDevices() = synchronized(lock) { mutableDevices.value = emptyMap() }
 
-    private fun reconcile() {
+    private fun reconcile(explicitAcquire: Boolean = false) {
         val interested = registry.hasInterest()
         val wanted = registry.effectiveAddresses()
         if (!interested) {
             stopBle()
             stopClassic()
         } else {
-            if (bleCallback == null || appliedAddresses != wanted) {
+            if (registry.shouldStartBle(explicitAcquire)) {
                 stopBle()
                 startBle(wanted)
             }
@@ -121,11 +123,11 @@ class BluetoothScanner private constructor(private val context: Context) {
     }
 
     private fun startBle(addresses: Set<String>?) {
-        val generation = registry.restartBleGeneration()
-        appliedAddresses = addresses
+        val generation = registry.beginBleRegistration(addresses)
         errors.remove("ble")
         val driver = guarded("get BLE scanner") { adapter()?.bluetoothLeScanner }
         if (driver == null) {
+            registry.failBleGeneration(generation)
             if (!errors.containsKey("ble")) errors["ble"] = "BLE scanner unavailable"
             return
         }
@@ -141,7 +143,7 @@ class BluetoothScanner private constructor(private val context: Context) {
             }
             override fun onBatchScanResults(results: List<ScanResult>) { results.forEach { onScanResult(0, it) } }
             override fun onScanFailed(errorCode: Int): Unit = synchronized(lock) {
-                if (!registry.acceptsBleGeneration(generation)) return@synchronized
+                if (!registry.failBleGeneration(generation)) return@synchronized
                 bleRunning = false
                 errors["ble"] = "BLE scan failed ($errorCode)"
                 Log.w("BluetoothScanner", errors["ble"].orEmpty())
@@ -155,6 +157,7 @@ class BluetoothScanner private constructor(private val context: Context) {
             driver.startScan(filters, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), callback)
             true
         } == true
+        if (!bleRunning) registry.failBleGeneration(generation)
         if (!bleRunning && !errors.containsKey("ble")) errors["ble"] = "BLE scan could not start"
     }
 
@@ -257,8 +260,10 @@ class BluetoothScanner private constructor(private val context: Context) {
     }
 
     private fun publishStatus() {
-        mutableStatus.value = ScannerStatus(bleRunning || classicRunning, bleRunning, classicRunning,
+        val snapshot = ScannerStatus(bleRunning || classicRunning, bleRunning, classicRunning,
             errors.values.takeIf { it.isNotEmpty() }?.joinToString("; "))
+        mutableStatus.value = snapshot
+        leases.values.forEach { it.health.observe(snapshot) }
     }
 
     private fun hasPermission(permission: String): Boolean =

@@ -62,6 +62,10 @@ class HistoryPersistenceTest {
             assertEquals(10_000, retained.size)
             assertEquals("device-0", retained.first().address)
             assertFalse(retained.any { it.address == "expired" || it.address == "device-10000" })
+            assertEquals("Unconfigured observations must not create permanent metadata", 0, metadataCount(db))
+            repository.clearHistory()
+            assertTrue(repository.visibleSnapshot().isEmpty())
+            assertEquals(0, metadataCount(db))
         } finally {
             db.close()
         }
@@ -102,4 +106,38 @@ class HistoryPersistenceTest {
             context.deleteDatabase(name)
         }
     }
+
+    @Test fun clearingUnconfiguredObservationsPreservesConfiguredAndLegacyMetadata() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val now = System.currentTimeMillis()
+            val repository = ObservationRepository(db) { now }
+            db.watchedDeviceDao().insert(WatchedDevice("watched", "Old watched name", alertEnabled = false))
+            db.deviceMetadataDao().upsert(DeviceMetadata("alias", customName = "My speaker"))
+            db.deviceMetadataDao().upsert(DeviceMetadata("hidden", isHidden = true))
+            db.deviceMetadataDao().upsert(DeviceMetadata("legacy", lastSeenName = "Retained legacy name"))
+            repository.record(listOf("unknown", "watched", "alias", "hidden", "legacy").map {
+                ScannedDevice(it, "New actual name", -62, true, now)
+            }, DetectionSource.NEARBY)
+            assertEquals(3, metadataCount(db))
+            assertEquals("New actual name", db.watchedDeviceDao().getByAddress("watched")!!.name)
+            assertEquals(now, db.watchedDeviceDao().getByAddress("watched")!!.lastSeenAt)
+            repository.clearHistory()
+            assertTrue(repository.visibleSnapshot().isEmpty())
+            assertEquals(3, metadataCount(db))
+            assertEquals("My speaker", db.deviceMetadataDao().getByAddress("alias")!!.customName)
+            assertTrue(db.deviceMetadataDao().getByAddress("hidden")!!.isHidden)
+            assertEquals("New actual name", db.deviceMetadataDao().getByAddress("legacy")!!.lastSeenName)
+            assertEquals(null, db.deviceMetadataDao().getByAddress("unknown"))
+            assertEquals(null, db.deviceMetadataDao().getByAddress("watched"))
+        } finally {
+            db.close()
+        }
+    }
+
+    private fun metadataCount(db: AppDatabase): Int =
+        db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM device_metadata").use {
+            it.moveToFirst()
+            it.getInt(0)
+        }
 }

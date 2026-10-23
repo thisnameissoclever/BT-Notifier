@@ -34,6 +34,8 @@ Open Finder for a selected nearby or watched address. Show a bounded signal-stre
 
 Use the current Android Views, navigation, Room, and coroutine dependencies. Add Health and History as bottom navigation destinations, bringing the total to five. Finder is a separate destination with an explicit return action. Keep scans and exports off the UI thread where appropriate, respect view lifecycle, and provide accessible text alongside the graph.
 
+Finder displays signal measurements and trends without computing coordinates, bearing, or distance. Keep the existing `neverForLocation` Bluetooth permission assertion for that scope. Android filters some Bluetooth Low Energy beacons under this assertion; detection is not guaranteed for every advertising device. Reassess the assertion if future code infers geographic location, rooms, or mapped beacon positions. See [Android Bluetooth permissions](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions).
+
 ## Acceptance
 
 Use deterministic local tests for lease ownership, generation rejection, filter transitions, timers, timestamps/notification separation, history bounds, CSV escaping, and signal freshness. Use an exclusively owned emulator for additive database upgrade, retained settings/data, the three screens, document export, service controls, blocked/resume states, permission loss, and boot behavior where practical. Record radio and Android-version limits honestly. An emulator without functioning Bluetooth hardware cannot prove real discovery.

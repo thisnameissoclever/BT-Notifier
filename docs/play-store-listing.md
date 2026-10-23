@@ -30,6 +30,8 @@ Android requires Bluetooth, notification, and, for some features or Android vers
 
 Background scanning depends on Android's permission, battery, Bluetooth, and foreground-service rules. A watched device may not be detected if it is out of range, not advertising, powered off, or restricted by its own privacy settings.
 
+Android filters some Bluetooth Low Energy beacons under the app's Bluetooth permission model. Detection is not guaranteed for every advertising device.
+
 Signal strength varies with walls, interference, and device hardware. Finder proximity is an estimate rather than a distance measurement. Android may require you to reopen the app to resume Wi-Fi-gated monitoring after a restart.
 
 ## Classification

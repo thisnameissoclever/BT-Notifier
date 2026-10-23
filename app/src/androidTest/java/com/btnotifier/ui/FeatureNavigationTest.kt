@@ -157,6 +157,39 @@ class FeatureNavigationTest {
                 exportMonitor = null
             }
 
+            val cancelledPicker = instrumentation.addMonitor(createDocument,
+                Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null), true)
+            exportMonitor = cancelledPicker
+            try {
+                val exportedBeforeCancel = destination.readText(Charsets.UTF_8)
+                onView(withId(R.id.btn_export_history)).perform(click())
+                assertEquals(1, cancelledPicker.hits)
+                assertEquals(exportedBeforeCancel, destination.readText(Charsets.UTF_8))
+                assertEquals(snapshot.size, runBlocking { db.detectionHistoryDao().visibleSnapshot(HistoryPolicy.retentionCutoff(observedAt)).size })
+            } finally {
+                instrumentation.removeMonitor(cancelledPicker)
+                exportMonitor = null
+            }
+            onView(withId(R.id.btn_clear_history)).perform(click())
+            onView(withId(android.R.id.button2)).perform(click())
+            awaitView(withText(observedName))
+            val totalRows = db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM detection_history").use {
+                it.moveToFirst(); it.getInt(0)
+            }
+            // Confirm deletion only when all history belongs to this test; preserve unrelated data.
+            if (totalRows == 2) {
+                onView(withId(R.id.btn_clear_history)).perform(click())
+                onView(withId(android.R.id.button1)).perform(click())
+                awaitView(allOf(withId(R.id.tv_history_status), withText(R.string.history_cleared)))
+                assertTrue(runBlocking { db.detectionHistoryDao().visibleSnapshot(0).isEmpty() })
+                assertNotNull(runBlocking { db.watchedDeviceDao().getByAddress(address) })
+                assertEquals(watchName, runBlocking { db.deviceMetadataDao().getByAddress(address)!!.customName })
+                assertTrue(runBlocking { db.deviceMetadataDao().getByAddress(hiddenAddress)!!.isHidden })
+                android.util.Log.i("FeatureNavigationTest", "Confirmed Clear History removed only the two owned history fixtures and retained watch/alias/hidden choices")
+            } else {
+                android.util.Log.i("FeatureNavigationTest", "Confirmed Clear History omitted because unrelated history exists; cancellation verified")
+            }
+
             onView(withId(R.id.settingsFragment)).perform(click())
             onView(withId(R.id.switch_service)).check(matches(not(isChecked())))
             onView(withId(R.id.watchListFragment)).perform(click())
@@ -175,18 +208,21 @@ class FeatureNavigationTest {
             val scanner = BluetoothScanner.getInstance(context)
             if (scanner.isBluetoothEnabled) {
                 onView(withId(R.id.btn_search)).perform(scrollTo(), click())
-                onView(withId(R.id.btn_search)).perform(stopOnlyIfSearching())
-                onView(withId(R.id.tv_signal)).check(matches(withText(R.string.finder_signal_none)))
             } else {
                 // Starting here launches Android's enable-Bluetooth UI. Keep the test inside this app.
                 onView(withId(R.id.tv_status)).check(matches(withText(R.string.finder_ready)))
                 onView(withId(R.id.btn_search)).check(matches(isEnabled()))
             }
             scenario.moveToState(Lifecycle.State.CREATED)
+            assertFalse("Leaving Finder must release its scan while background monitoring is disabled", scanner.status.value.isScanning)
             scenario.moveToState(Lifecycle.State.RESUMED)
             onView(withId(R.id.btn_search)).check(matches(withText(R.string.finder_start)))
             onView(withId(R.id.tv_signal)).check(matches(withText(R.string.finder_signal_none)))
-            onView(withId(R.id.btn_back)).perform(scrollTo(), click())
+            tapAfterWindowTransition(scenario, R.id.btn_back)
+            scenario.onActivity { activity ->
+                val host = activity.supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
+                assertEquals("Finder Back must return to Watch List", R.id.watchListFragment, host.navController.currentDestination?.id)
+            }
             awaitView(allOf(withId(R.id.tv_title), withText("Watch List")))
             onView(withId(R.id.nearbyFragment)).perform(click())
             onView(withId(R.id.btn_scan)).check(matches(isDisplayed()))
@@ -216,7 +252,13 @@ class FeatureNavigationTest {
             if (scanner.isBluetoothEnabled) {
                 awaitCondition("Background cycle enters its timed scan") { MonitoringStatus.state.value.phase == "Scanning" }
             }
+            assertTrue("Visible recovery must keep the monitoring preference enabled", runBlocking { preferences.serviceEnabled.first() })
             onView(withId(R.id.settingsFragment)).perform(click())
+            scenario.onActivity { activity ->
+                val host = activity.supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
+                assertEquals(R.id.settingsFragment, host.navController.currentDestination?.id)
+            }
+            assertTrue("Returning to Settings must not restore an obsolete disabled preference", runBlocking { preferences.serviceEnabled.first() })
             awaitView(allOf(withId(R.id.switch_service), isChecked()))
             onView(withId(R.id.switch_service)).perform(click())
             awaitCondition("Settings stops the app service") { !MonitoringStatus.state.value.running }
@@ -312,18 +354,30 @@ class FeatureNavigationTest {
         })
     }
 
-    private fun stopOnlyIfSearching() = object : ViewAction {
-        override fun getDescription() = "Stop an active Finder search, or verify a reported scanner failure"
-        override fun getConstraints(): Matcher<View> = isAssignableFrom(TextView::class.java)
-        override fun perform(controller: UiController, view: View) {
-            if ((view as TextView).text.toString() == context.getString(R.string.finder_stop)) {
-                click().perform(controller, view)
-            } else {
-                val root = view.rootView
-                val status = root.findViewById<TextView>(R.id.tv_status).text.toString()
-                assertTrue("Unavailable scanner must report a failure: $status",
-                    status.startsWith(context.getString(R.string.finder_failed, "")))
+    /** Espresso 3.5.1 injects before API 36 task animations finish; platform input synchronizes them. */
+    private fun tapAfterWindowTransition(scenario: ActivityScenario<MainActivity>, id: Int) {
+        onView(withId(id)).perform(scrollTo())
+        val coordinates = FloatArray(2)
+        scenario.onActivity { activity ->
+            val button = activity.findViewById<View>(id)
+            assertTrue(button.hasOnClickListeners())
+            assertTrue(button.isEnabled && button.isShown && button.isAttachedToWindow)
+            val position = IntArray(2)
+            button.getLocationOnScreen(position)
+            coordinates[0] = position[0] + button.width / 2f
+            coordinates[1] = position[1] + button.height / 2f
+        }
+        val time = SystemClock.uptimeMillis()
+        for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+            val event = android.view.MotionEvent.obtain(time, time + if (action == android.view.MotionEvent.ACTION_UP) 10L else 0L,
+                action, coordinates[0], coordinates[1], 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            try {
+                InstrumentationRegistry.getInstrumentation().sendPointerSync(event)
+            } finally {
+                event.recycle()
             }
         }
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
     }
 }

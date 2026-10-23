@@ -58,10 +58,16 @@ class SettingsFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        // Saved widget state must not write obsolete values back into current preferences.
+        isLoadingSettings = true
         prefs = PreferencesManager(requireContext())
         wifiGate = WifiNetworkGate(requireContext())
         setupWifiSelector()
         setupListeners()
+    }
+
+    override fun onViewStateRestored(savedInstanceState: Bundle?) {
+        super.onViewStateRestored(savedInstanceState)
         loadCurrentSettings()
     }
 
