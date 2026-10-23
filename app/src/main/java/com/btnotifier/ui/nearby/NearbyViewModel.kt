@@ -106,6 +106,7 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     fun startScan() {
         if (lease != null && _isScanning.value == true) return
         stopScan()
+        scanner.clearDevices()
         val current = scanner.acquire("nearby") ?: run {
             mutableScanError.value = scanner.status.value.error
             return

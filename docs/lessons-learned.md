@@ -1,5 +1,12 @@
 # Lessons Learned
 
+## 2026-10-23: Reset manual scan display without clearing another consumer's results
+
+1. What happened: A fresh Nearby scan retained old rows because the singleton display cache outlived each scan lease.
+2. Root cause: The lease refactor removed the previous display reset while the Nearby screen continued reading the shared display cache.
+3. Prevention rule: Reset the manual display when an explicit new scan starts. Keep each consumer's observation map independent so clearing the display cannot discard background or Finder observations.
+4. Verification: Seed an absent display row before each of two explicit scans and verify that it disappears from both cache and UI. Hold a separate consumer lease and verify that its observations survive the display reset.
+
 ## 2026-10-23: Observe adapter shutdown independently of scan callbacks
 
 1. What happened: Turning Bluetooth off during a scan left a stale active-transport flag, and monitoring recorded a successful completion.
