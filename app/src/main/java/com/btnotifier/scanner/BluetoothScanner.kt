@@ -62,6 +62,8 @@ class BluetoothScanner private constructor(private val context: Context) {
     private val errors = linkedMapOf<String, String>()
     private var bleScanner: BluetoothLeScanner? = null
     private var bleCallback: ScanCallback? = null
+    private var adapterReceiver: BroadcastReceiver? = null
+    private var adapterUnavailable = false
     private var classicReceiver: BroadcastReceiver? = null
     private var classicGeneration = 0L
     private var bleRunning = false
@@ -104,6 +106,20 @@ class BluetoothScanner private constructor(private val context: Context) {
         reconcile()
     }
 
+    /** Validate live availability and remove the lease before normal shutdown can affect its result. */
+    internal fun finishLease(lease: ScanLease): ScanCycleResult<ScannedDevice> = synchronized(lock) {
+        if (leases[lease.token] !== lease) {
+            lease.health.observe(ScannerStatus(error = "Scan lease is no longer active"))
+            return@synchronized lease.health.finish(lease.results.value.values)
+        }
+        if (!hasPermissions || !isBluetoothEnabled) {
+            invalidateAvailability(if (!hasPermissions) "Bluetooth permissions were revoked" else "Bluetooth is off - waiting")
+        }
+        val completion = lease.health.finish(lease.results.value.values)
+        release(lease)
+        completion
+    }
+
     fun clearDevices() = synchronized(lock) { mutableDevices.value = emptyMap() }
 
     private fun reconcile(explicitAcquire: Boolean = false) {
@@ -112,13 +128,67 @@ class BluetoothScanner private constructor(private val context: Context) {
         if (!interested) {
             stopBle()
             stopClassic()
+            stopAdapterReceiver()
+            adapterUnavailable = false
         } else {
+            ensureAdapterReceiver()
+            if (!hasPermissions || !isBluetoothEnabled) {
+                invalidateAvailability(if (!hasPermissions) "Bluetooth permissions were revoked" else "Bluetooth is off - waiting")
+                return
+            }
+            if (adapterUnavailable && !explicitAcquire) {
+                publishStatus()
+                return
+            }
+            if (explicitAcquire) {
+                adapterUnavailable = false
+                errors.remove("availability")
+            }
             if (registry.shouldStartBle(explicitAcquire)) {
                 stopBle()
                 startBle(wanted)
             }
             if (classicReceiver == null) startClassic()
         }
+        publishStatus()
+    }
+
+    private fun ensureAdapterReceiver() {
+        if (adapterReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent): Unit = synchronized(lock) {
+                if (adapterReceiver !== this || !registry.hasInterest()) return@synchronized
+                when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                    BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF ->
+                        invalidateAvailability("Bluetooth is off - waiting")
+                    BluetoothAdapter.STATE_ON -> if (adapterUnavailable) {
+                        errors["availability"] = "Bluetooth restored - start a new scan"
+                        publishStatus()
+                    }
+                }
+            }
+        }
+        val registered = guarded("register Bluetooth state receiver") {
+            ContextCompat.registerReceiver(context, receiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+                ContextCompat.RECEIVER_EXPORTED)
+            true
+        } == true
+        if (registered) adapterReceiver = receiver
+    }
+
+    private fun stopAdapterReceiver() {
+        adapterReceiver?.let { receiver ->
+            try { context.unregisterReceiver(receiver) }
+            catch (error: IllegalArgumentException) { Log.w("BluetoothScanner", "unregister Bluetooth state receiver failed", error) }
+        }
+        adapterReceiver = null
+    }
+
+    private fun invalidateAvailability(reason: String) {
+        adapterUnavailable = true
+        errors["availability"] = reason
+        stopBle()
+        stopClassic()
         publishStatus()
     }
 
@@ -210,7 +280,11 @@ class BluetoothScanner private constructor(private val context: Context) {
     // guarded catches permission revocation between lease acquisition and adapter access.
     @SuppressLint("MissingPermission")
     private fun startClassicDiscovery() {
-        if (!registry.hasInterest()) return
+        if (!registry.hasInterest() || adapterUnavailable) return
+        if (!isBluetoothEnabled) {
+            invalidateAvailability("Bluetooth is off - waiting")
+            return
+        }
         classicRunning = guarded("start classic discovery") {
             val driver = adapter() ?: return@guarded false
             driver.isDiscovering || driver.startDiscovery()
@@ -239,10 +313,7 @@ class BluetoothScanner private constructor(private val context: Context) {
 
     private fun publishDevice(device: ScannedDevice, observedAtNanos: Long = SystemClock.elapsedRealtimeNanos()) {
         if (!hasPermissions) {
-            errors["availability"] = "Bluetooth permissions were revoked"
-            stopBle()
-            stopClassic()
-            publishStatus()
+            invalidateAvailability("Bluetooth permissions were revoked")
             return
         }
         val previous = mutableDevices.value[device.address]
@@ -262,8 +333,9 @@ class BluetoothScanner private constructor(private val context: Context) {
     private fun publishStatus() {
         val snapshot = ScannerStatus(bleRunning || classicRunning, bleRunning, classicRunning,
             errors.values.takeIf { it.isNotEmpty() }?.joinToString("; "))
-        mutableStatus.value = snapshot
         leases.values.forEach { it.health.observe(snapshot) }
+        // Main-thread collectors can finish a lease immediately when this state is published.
+        mutableStatus.value = snapshot
     }
 
     private fun hasPermission(permission: String): Boolean =

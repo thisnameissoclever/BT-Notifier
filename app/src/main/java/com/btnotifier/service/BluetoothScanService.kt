@@ -166,13 +166,16 @@ class BluetoothScanService : Service() {
             }
             activeLease = lease
             publish(if (scanner.status.value.isScanning) "Scanning" else "Blocked", scanner.status.value.error)
-            if (scanner.status.value.isScanning) delay(config.duration * 1000L)
+            if (scanner.status.value.isScanning) {
+                withTimeoutOrNull(config.duration * 1000L) {
+                    scanner.status.first { !it.isScanning }
+                }
+            }
             currentCoroutineContext().ensureActive()
             if (!cycles.isCurrent(token) || !started || !gateAllows(config)) return
-            // Snapshot health before release, whose normal transport shutdown is not a scan failure.
-            val completion = lease.health.finish(lease.devices.value.values)
+            // The scanner checks live adapter availability and snapshots before its atomic release.
+            val completion = scanner.finishLease(lease)
             val results = completion.observations
-            scanner.release(lease)
             activeLease = null
             // Persist actual observations before any delivery preference or cooldown decision.
             ObservationRepository.get(applicationContext).record(results, DetectionSource.BACKGROUND)

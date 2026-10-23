@@ -1,5 +1,19 @@
 # Lessons Learned
 
+## 2026-10-23: Observe adapter shutdown independently of scan callbacks
+
+1. What happened: Turning Bluetooth off during a scan left a stale active-transport flag, and monitoring recorded a successful completion.
+2. Root cause: Android can remove Bluetooth Low Energy scan registrations without calling the scan-failure callback. Registration flags alone did not establish current adapter availability.
+3. Prevention rule: Observe adapter state changes independently of discovery callbacks. Invalidate generations and interrupt existing leases on shutdown. Check live permissions and adapter availability while atomically finishing a lease. Restoring Bluetooth must not erase an old lease's interruption.
+4. Verification: On an exclusively owned disposable emulator, disable Bluetooth during an active cycle and verify blocked state, cleared transport flags, and unchanged completion statistics. Restore Bluetooth before cleanup and verify a fresh start separately.
+
+## 2026-10-23: Resolve alias edits against current stored observations
+
+1. What happened: Saving an alias dialog opened before a newer detection could restore the dialog's older actual device name.
+2. Root cause: Alias edits trusted an untimestamped dialog snapshot when device metadata lacked a timestamp, even though the watched row contained a newer observation.
+3. Prevention rule: Resolve actual names and their timestamps from current database rows inside the alias transaction. Carry the newest known timestamp into metadata. Use captured dialog text only when no authoritative stored observation exists.
+4. Verification: Exercise both Nearby and Watch List view models with a stale dialog, a newer watched observation without metadata, and newer metadata than the watched row. Save and clear the alias, then verify names, timestamps, and hidden choices remain intact.
+
 ## 2026-10-23: Restore settings views before reading authoritative preferences
 
 1. What happened: Returning to Settings after resuming monitoring restored an old unchecked switch and persisted that value, stopping the service again.

@@ -115,11 +115,13 @@ class FeatureNavigationTest {
             awaitView(allOf(withId(R.id.tv_monitoring), withText(allOf(containsString(stopped), containsString(disabled)))))
             onView(withId(R.id.btn_resume)).check(matches(not(isEnabled())))
             onView(withId(R.id.tv_resume)).check(matches(withText(R.string.health_enable_first)))
+            saveFeatureScreenshot("health")
 
             onView(withId(R.id.historyFragment)).perform(click())
             awaitView(withText(observedName))
             onView(allOf(withId(R.id.tv_history_address), withText(address))).check(matches(isDisplayed()))
             onView(withId(R.id.btn_export_history)).check(matches(isEnabled()))
+            saveFeatureScreenshot("history")
             val snapshot = runBlocking { db.detectionHistoryDao().visibleSnapshot(HistoryPolicy.retentionCutoff(observedAt)) }
             assertTrue(snapshot.any { it.address == address })
             assertFalse(snapshot.any { it.address == hiddenAddress })
@@ -199,6 +201,7 @@ class FeatureNavigationTest {
             onView(withId(R.id.tv_address)).check(matches(withText(address)))
             onView(withId(R.id.tv_device_name)).check(matches(withText(watchName)))
             onView(withId(R.id.tv_signal)).check(matches(withText(R.string.finder_signal_none)))
+            saveFeatureScreenshot("finder")
             scenario.onActivity { activity ->
                 val host = activity.supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
                 assertEquals(R.id.finderFragment, host.navController.currentDestination?.id)
@@ -314,6 +317,19 @@ class FeatureNavigationTest {
             SystemClock.sleep(50L)
         } while (SystemClock.uptimeMillis() < deadline)
         throw AssertionError(description)
+    }
+
+    private fun saveFeatureScreenshot(name: String) {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.waitForIdle(500L, 5_000L)
+        val bitmap = automation.takeScreenshot()
+        try {
+            File(context.cacheDir, "feature-proof-$name.png").outputStream().use {
+                assertTrue(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun uniqueAddress(): String {

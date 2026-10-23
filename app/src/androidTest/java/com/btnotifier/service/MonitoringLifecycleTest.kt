@@ -1,12 +1,15 @@
 package com.btnotifier.service
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationManager
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -18,6 +21,7 @@ import com.btnotifier.MainActivity
 import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.PreferencesManager
 import com.btnotifier.data.WatchedDevice
+import com.btnotifier.scanner.BluetoothScanner
 import com.btnotifier.utils.NotificationHelper
 import java.util.UUID
 import kotlinx.coroutines.flow.first
@@ -97,6 +101,47 @@ class MonitoringLifecycleTest {
             assertNotNull(MonitoringStatus.state.value.error)
         }
         assertTrue("Restart must not regress the completed timestamp", readCompletedAt() >= completedAtStop)
+    }
+
+    // withFixture verifies BLUETOOTH_CONNECT before this test reads the adapter state.
+    @SuppressLint("MissingPermission")
+    @Test fun adapterOffDuringCycleRevokesTransportStateAndSuccessfulCompletion() {
+        val emulator = Build.HARDWARE in setOf("ranchu", "goldfish") ||
+            Build.FINGERPRINT.startsWith("generic/") || Build.FINGERPRINT.startsWith("google/sdk_gphone")
+        assumeTrue("Bluetooth toggling is restricted to the exclusively owned emulator.", emulator)
+        withFixture { fixture ->
+            val adapter = requireNotNull((context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter)
+            assumeTrue("This regression requires an initially enabled emulator Bluetooth adapter.", adapter.isEnabled)
+            val originallyEnabled = adapter.isEnabled
+            val completedBeforeStart = readCompletedAt()
+            runBlocking { preferences.setScanDurationSeconds(5) }
+            try {
+                assertEquals("This regression requires an in-flight physical scan", "Scanning", fixture.startVisible())
+                runBluetoothShellCommand("disable")
+                await("The emulator adapter should turn off") { !adapter.isEnabled }
+                val scanner = BluetoothScanner.getInstance(context)
+                await("Adapter OFF must clear all scanner transport flags and block the cycle") {
+                    val status = scanner.status.value
+                    !status.isScanning && !status.bleScanning && !status.classicScanning &&
+                        MonitoringStatus.state.value.phase == "Blocked"
+                }
+                assertFor(1_000, "Adapter OFF must never manufacture a successful background completion") {
+                    assertEquals(completedBeforeStart, readCompletedAt())
+                    assertNotNull(MonitoringStatus.state.value.error)
+                }
+            } finally {
+                if (originallyEnabled) {
+                    runBluetoothShellCommand("enable")
+                    await("Restore the emulator adapter before fixture cleanup") { adapter.isEnabled }
+                }
+            }
+        }
+    }
+
+    private fun runBluetoothShellCommand(action: String) {
+        val descriptor = InstrumentationRegistry.getInstrumentation().uiAutomation
+            .executeShellCommand("cmd bluetooth_manager $action")
+        ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
     }
 
     private data class SavedPreferences(

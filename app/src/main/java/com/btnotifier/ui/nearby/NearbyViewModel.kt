@@ -18,6 +18,7 @@ import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.data.WatchedDevice
 import com.btnotifier.device.DeviceDisplayName
+import com.btnotifier.device.AliasObservationPolicy
 import com.btnotifier.scanner.BluetoothScanner
 import com.btnotifier.scanner.ScannedDevice
 import kotlinx.coroutines.delay
@@ -186,19 +187,21 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     fun renameDevice(address: String, newName: String, actualName: String? = null) {
         viewModelScope.launch {
             db.withTransaction {
-                val name = DeviceDisplayName.normalizeAlias(newName)
-                val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName)
                 val existing = metaDao.getByAddress(address)
                 val watched = dao.getByAddress(address)
-                val retainedName = if (existing?.lastObservedAt != null) existing.lastSeenName
-                    else DeviceDisplayName.retainedLastSeenName(existing?.customName, existing?.lastSeenName, normalizedActualName)
-                val updated = (existing ?: DeviceMetadata(address)).copy(
-                    customName = name,
-                    lastSeenName = retainedName
+                val observation = AliasObservationPolicy.resolve(existing, watched, actualName)
+                metaDao.upsert(
+                    (existing ?: DeviceMetadata(address)).copy(
+                        customName = DeviceDisplayName.normalizeAlias(newName),
+                        lastSeenName = observation.name,
+                        lastObservedAt = observation.observedAt
+                    )
                 )
-                metaDao.upsert(updated)
-                if (DeviceDisplayName.storedNameLooksLikeAlias(existing?.customName, watched?.name)) {
-                    dao.updateName(address, retainedName.orEmpty())
+                observation.observedAt?.let { dao.updateLastSeen(address, it) }
+                when {
+                    observation.name != null -> dao.updateName(address, observation.name)
+                    DeviceDisplayName.storedNameLooksLikeAlias(existing?.customName, watched?.name) ->
+                        dao.updateName(address, "")
                 }
             }
         }

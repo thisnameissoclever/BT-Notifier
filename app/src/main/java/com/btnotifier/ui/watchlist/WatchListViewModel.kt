@@ -9,6 +9,7 @@ import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.data.WatchedDevice
 import com.btnotifier.device.DeviceDisplayName
+import com.btnotifier.device.AliasObservationPolicy
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -60,22 +61,18 @@ class WatchListViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             db.withTransaction {
                 val existing = metaDao.getByAddress(address)
-                val normalizedActualName = if (existing?.lastObservedAt == null) {
-                    DeviceDisplayName.normalizeActualName(actualName)
-                } else null
                 val watched = dao.getByAddress(address)
+                val observation = AliasObservationPolicy.resolve(existing, watched, actualName)
                 metaDao.upsert(
                     (existing ?: DeviceMetadata(address)).copy(
                         customName = DeviceDisplayName.normalizeAlias(newName),
-                        lastSeenName = DeviceDisplayName.retainedLastSeenName(
-                            existingAlias = existing?.customName,
-                            existingLastSeenName = existing?.lastSeenName,
-                            actualName = normalizedActualName
-                        )
+                        lastSeenName = observation.name,
+                        lastObservedAt = observation.observedAt
                     )
                 )
+                observation.observedAt?.let { dao.updateLastSeen(address, it) }
                 when {
-                    normalizedActualName != null -> dao.updateName(address, normalizedActualName)
+                    observation.name != null -> dao.updateName(address, observation.name)
                     DeviceDisplayName.storedNameLooksLikeAlias(existing?.customName, watched?.name) ->
                         dao.updateName(address, "")
                 }
