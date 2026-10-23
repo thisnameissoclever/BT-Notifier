@@ -6,6 +6,9 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.core.os.bundleOf
+import androidx.navigation.fragment.findNavController
+import com.btnotifier.R
 import com.btnotifier.databinding.FragmentWatchListBinding
 import com.btnotifier.device.DeviceDisplayName
 import com.btnotifier.ui.DeviceAliasDialog
@@ -36,7 +39,13 @@ class WatchListFragment : Fragment() {
             onAlertToggle = { item, enabled ->
                 viewModel.setAlertEnabled(item.device, enabled)
             },
-            onRename = { item -> showRenameDialog(item) }
+            onRename = { item -> showRenameDialog(item) },
+            onFind = { item ->
+                findNavController().navigate(R.id.finderFragment, bundleOf(
+                    "address" to item.device.address,
+                    "displayName" to item.displayName
+                ))
+            }
         )
         binding.recyclerView.adapter = adapter
 

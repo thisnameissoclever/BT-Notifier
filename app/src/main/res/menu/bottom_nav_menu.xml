@@ -12,6 +12,16 @@
         android:title="Watch List" />
 
     <item
+        android:id="@+id/healthFragment"
+        android:icon="@drawable/ic_health"
+        android:title="Health" />
+
+    <item
+        android:id="@+id/historyFragment"
+        android:icon="@drawable/ic_history"
+        android:title="History" />
+
+    <item
         android:id="@+id/settingsFragment"
         android:icon="@drawable/ic_settings"
         android:title="Settings" />

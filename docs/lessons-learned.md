@@ -1,5 +1,12 @@
 # Lessons Learned
 
+## 2026-10-23: Scan consumers need independent lifetimes and observations
+
+1. What happened: Background monitoring, manual scans, and delayed completion callbacks could stop replacement scans or publish state after a scan had ended. Alert settings also controlled whether sightings updated last-seen timestamps.
+2. Root cause: Scan ownership and timers were shared implicitly, and observation persistence was coupled to alert eligibility.
+3. Prevention rule: Give each scan consumer a unique lease and a fresh result map. Reject stale callbacks by generation. Cancel the complete monitoring cycle when configuration changes or the service stops. Persist observations before applying alert settings, cooldowns, and Wi-Fi eligibility. Activate location-dependent monitoring from a visible activity when Android requires it.
+4. Verification: Test replacement leases, stale releases, cancellation, and alert-independent timestamps. Verify the Room database migration and alias retention on Android. Exercise foreground/background navigation, stop/start, and the resume action on an exclusively reserved emulator. Use Bluetooth hardware to verify actual screen-off reception.
+
 ## 2026-10-22: Legacy Pages publishing starts unrelated hosted builds
 
 1. What happened: Preparing an Android-only update exposed a legacy Pages publishing configuration tied to `main:/docs`. A main-branch push could start a hosted Pages build even when the support site had no changes.

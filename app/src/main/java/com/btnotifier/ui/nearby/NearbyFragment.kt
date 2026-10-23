@@ -2,8 +2,6 @@ package com.btnotifier.ui.nearby
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -14,6 +12,8 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.os.bundleOf
+import androidx.navigation.fragment.findNavController
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.btnotifier.R
@@ -62,7 +62,13 @@ class NearbyFragment : Fragment() {
                 viewModel.hideDevice(item.device)
                 Toast.makeText(requireContext(), R.string.device_hidden, Toast.LENGTH_SHORT).show()
             },
-            onRenameClick = { item -> showRenameDialog(item) }
+            onRenameClick = { item -> showRenameDialog(item) },
+            onFindClick = { item ->
+                findNavController().navigate(R.id.finderFragment, bundleOf(
+                    "address" to item.device.address,
+                    "displayName" to item.displayName
+                ))
+            }
         )
         binding.recyclerView.adapter = adapter
 
@@ -81,6 +87,10 @@ class NearbyFragment : Fragment() {
         viewModel.isScanning.observe(viewLifecycleOwner) { scanning ->
             binding.btnScan.text = if (scanning) "Stop Scan" else "Scan Now"
             binding.progressBar.visibility = if (scanning) View.VISIBLE else View.GONE
+        }
+
+        viewModel.scanError.observe(viewLifecycleOwner) { error ->
+            if (!error.isNullOrBlank()) Toast.makeText(requireContext(), error, Toast.LENGTH_LONG).show()
         }
 
         viewModel.devices.observe(viewLifecycleOwner) { items ->
@@ -109,6 +119,11 @@ class NearbyFragment : Fragment() {
         _binding = null
     }
 
+    override fun onStop() {
+        viewModel.stopScan()
+        super.onStop()
+    }
+
     private fun requestPermissionsAndScan() {
         val needed = requiredPermissions().filter {
             ContextCompat.checkSelfPermission(requireContext(), it) != PackageManager.PERMISSION_GRANTED
@@ -128,8 +143,7 @@ class NearbyFragment : Fragment() {
     }
 
     private fun isBluetoothEnabled(): Boolean {
-        val bm = requireContext().getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-        return bm?.adapter?.isEnabled == true
+        return com.btnotifier.scanner.BluetoothScanner.getInstance(requireContext()).isBluetoothEnabled
     }
 
     private fun requiredPermissions(): List<String> {

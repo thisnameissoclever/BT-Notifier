@@ -1,347 +1,284 @@
 package com.btnotifier.service
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
+import androidx.lifecycle.asFlow
 import com.btnotifier.data.AppDatabase
-import com.btnotifier.data.DeviceMetadata
+import com.btnotifier.data.DetectionSource
 import com.btnotifier.data.PreferencesManager
+import com.btnotifier.data.history.ObservationRepository
 import com.btnotifier.device.DeviceDisplayName
 import com.btnotifier.network.WifiNetworkGate
 import com.btnotifier.scanner.BluetoothScanner
+import com.btnotifier.scanner.ScanLease
+import com.btnotifier.scanner.ScannedDevice
 import com.btnotifier.utils.NotificationHelper
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.*
 
 class BluetoothScanService : Service() {
-
     companion object {
-        private const val TAG = "BTScanService"
         const val ACTION_START = "com.btnotifier.START_SCAN"
         const val ACTION_STOP = "com.btnotifier.STOP_SCAN"
         const val ACTION_SCAN_NOW = "com.btnotifier.SCAN_NOW"
-
-        // Alert cooldown: don't re-notify for the same device within this window
-        private const val ALERT_COOLDOWN_MS = 5 * 60 * 1000L
     }
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val handler = Handler(Looper.getMainLooper())
+    private data class Config(
+        val enabled: Boolean,
+        val interval: Int,
+        val duration: Int,
+        val wifi: Boolean,
+        val ssid: String,
+        val addresses: Set<String>
+    )
+
+    // Main serializes commands, lease revocation, completions and notification delivery.
+    private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scanRequests = Channel<Unit>(Channel.CONFLATED)
+    private val cycles = CyclePolicy()
+    private val alerts = AlertPolicy()
+    private val lastAlerts = mutableMapOf<String, Long>()
     private lateinit var scanner: BluetoothScanner
     private lateinit var prefs: PreferencesManager
     private lateinit var db: AppDatabase
-    private lateinit var wifiNetworkGate: WifiNetworkGate
-
-    // address -> timestamp of last alert sent
-    private val lastAlertTime = mutableMapOf<String, Long>()
-
-    private var scanDurationSeconds = PreferencesManager.DEFAULT_SCAN_DURATION
-    private var scanIntervalMinutes = PreferencesManager.DEFAULT_SCAN_INTERVAL
-    private var wifiScanGateEnabled = false
-    private var selectedWifiSsid = ""
-    private var prefsAndScheduleStarted = false
-    private var activeForegroundServiceTypes = 0
-
-    private val periodicScanRunnable = object : Runnable {
-        override fun run() {
-            performScan()
-            val intervalMs = scanIntervalMinutes * 60 * 1000L
-            handler.postDelayed(this, intervalMs)
-        }
-    }
+    private lateinit var wifiGate: WifiNetworkGate
+    private var activeLease: ScanLease? = null
+    private var started = false
+    private var cycleRunning = false
+    private var visibleStart = false
+    private var foregroundTypes = 0
 
     override fun onCreate() {
         super.onCreate()
-        scanner = BluetoothScanner(applicationContext)
-        prefs = PreferencesManager(applicationContext)
-        db = AppDatabase.getInstance(applicationContext)
-        wifiNetworkGate = WifiNetworkGate(applicationContext)
+        scanner = BluetoothScanner.getInstance(this)
+        prefs = PreferencesManager(this)
+        db = AppDatabase.getInstance(this)
+        wifiGate = WifiNetworkGate(this)
         NotificationHelper.createChannels(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val scanNow = intent?.action == ACTION_SCAN_NOW
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopForegroundService()
-                return START_NOT_STICKY
-            }
-        }
-
-        val notification = NotificationHelper.buildServiceNotification(this, "Bluetooth scanning active")
-        val initialForegroundServiceTypes =
-            if (prefsAndScheduleStarted &&
-                wifiScanGateEnabled &&
-                wifiNetworkGate.hasLocationForegroundPrerequisites()
-            ) {
-                wifiForegroundServiceType()
-            } else {
-                baseForegroundServiceType()
-            }
-        if (!startForegroundWithTypes(initialForegroundServiceTypes, notification)) {
-            stopSelf()
+        if (intent?.action == ACTION_STOP) {
+            stopMonitoring()
             return START_NOT_STICKY
         }
-
-        loadPrefsAndSchedule(scanNow)
-
+        if (!scope.isActive) scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        if (intent?.getBooleanExtra(MonitoringServiceStarter.EXTRA_USER_INITIATED, false) == true) visibleStart = true
+        if (started) {
+            if (intent?.action == ACTION_SCAN_NOW && !cycleRunning) scanRequests.trySend(Unit)
+            return START_STICKY
+        }
+        // A new process never inherits previous while-in-use location eligibility.
+        visibleStart = intent?.getBooleanExtra(MonitoringServiceStarter.EXTRA_USER_INITIATED, false) == true
+        if (!enterForeground(baseTypes(), "Starting monitoring")) {
+            scope.launch {
+                MonitoringServiceStarter.requestResume(applicationContext, "Android could not start monitoring. Open the app to resume.")
+                stopMonitoring("Open the app to resume monitoring")
+            }
+            return START_NOT_STICKY
+        }
+        started = true
+        MonitoringStatus.update(MonitoringSnapshot(true, "Starting"))
+        scope.launch {
+            try {
+                val timing = combine(prefs.serviceEnabled, prefs.scanIntervalMinutes, prefs.scanDurationSeconds) { enabled, interval, duration ->
+                    Triple(enabled, interval.coerceAtLeast(1), duration.coerceAtLeast(1))
+                }
+                val gate = combine(prefs.wifiScanGateEnabled, prefs.selectedWifiSsid) { enabled, ssid -> enabled to ssid }
+                combine(timing, gate, db.watchedDeviceDao().getAllLive().asFlow()) { time, wifi, watched ->
+                    Config(time.first, time.second, time.third, wifi.first, wifi.second, watched.map { it.address.uppercase() }.toSet())
+                }.distinctUntilChanged().collectLatest { config ->
+                    if (!config.enabled) { stopMonitoring(); return@collectLatest }
+                    if (config.wifi && !visibleStart) {
+                        val reason = "Open the app to resume Wi-Fi-gated monitoring after restart."
+                        MonitoringServiceStarter.requestResume(applicationContext, reason)
+                        stopMonitoring(reason)
+                        return@collectLatest
+                    }
+                    if (config.wifi && !wifiGate.hasLocationForegroundPrerequisites()) {
+                        val reason = "Wi-Fi monitoring needs Location and Wi-Fi permissions with Location enabled. Open the app to resume."
+                        MonitoringServiceStarter.requestResume(applicationContext, reason)
+                        stopMonitoring(reason)
+                        return@collectLatest
+                    }
+                    if (!enterForeground(if (config.wifi) wifiTypes() else baseTypes(), "Monitoring ready")) {
+                        val reason = "Open the app to enable Wi-Fi monitoring."
+                        MonitoringServiceStarter.requestResume(applicationContext, reason)
+                        stopMonitoring(reason)
+                        return@collectLatest
+                    }
+                    prefs.setMonitoringResumeRequired(false, "")
+                    NotificationHelper.cancelResumeNotification(applicationContext)
+                    runSchedule(config)
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                Log.e("BTScanService", "monitoring configuration or schedule failed", error)
+                val reason = "Monitoring stopped: ${error.message ?: error.javaClass.simpleName}"
+                MonitoringServiceStarter.requestResume(applicationContext, reason)
+                stopMonitoring(reason)
+            }
+        }
         return START_STICKY
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onDestroy() {
-        super.onDestroy()
-        handler.removeCallbacks(periodicScanRunnable)
-        scanner.stopScan()
-        serviceScope.cancel()
-    }
-
-    private fun loadPrefsAndSchedule(scanNow: Boolean) {
-        if (prefsAndScheduleStarted) {
-            serviceScope.launch {
-                scanIntervalMinutes = prefs.scanIntervalMinutes.first()
-                scanDurationSeconds = prefs.scanDurationSeconds.first()
-                wifiScanGateEnabled = prefs.wifiScanGateEnabled.first()
-                selectedWifiSsid = prefs.selectedWifiSsid.first()
-                withContext(Dispatchers.Main) {
-                    updateForegroundServiceTypesForWifiGate(wifiScanGateEnabled)
-                }
-                if (scanNow) performScan()
+    private suspend fun runSchedule(config: Config) {
+        try {
+            while (currentCoroutineContext().isActive && started) {
+                // Requests received during a cycle coalesce into the cycle already in progress.
+                while (scanRequests.tryReceive().isSuccess) { /* discard duplicate wakeups */ }
+                val began = System.currentTimeMillis()
+                performCycle(config)
+                currentCoroutineContext().ensureActive()
+                val next = cycles.nextScanAt(began, config.interval * 60_000L, System.currentTimeMillis())
+                val prior = MonitoringStatus.state.value
+                MonitoringStatus.update(prior.copy(nextScanAt = next))
+                withTimeoutOrNull((next - System.currentTimeMillis()).coerceAtLeast(1L)) { scanRequests.receive() }
             }
-            return
-        }
-        prefsAndScheduleStarted = true
-
-        serviceScope.launch {
-            scanIntervalMinutes = prefs.scanIntervalMinutes.first()
-            scanDurationSeconds = prefs.scanDurationSeconds.first()
-            wifiScanGateEnabled = prefs.wifiScanGateEnabled.first()
-            selectedWifiSsid = prefs.selectedWifiSsid.first()
-
-            withContext(Dispatchers.Main) {
-                updateForegroundServiceTypesForWifiGate(wifiScanGateEnabled)
-            }
-
-            // Watch for preference changes
-            launch {
-                prefs.scanIntervalMinutes.collect { minutes ->
-                    scanIntervalMinutes = minutes
-                }
-            }
-            launch {
-                prefs.scanDurationSeconds.collect { seconds ->
-                    scanDurationSeconds = seconds
-                }
-            }
-            launch {
-                prefs.wifiScanGateEnabled.collect { enabled ->
-                    wifiScanGateEnabled = enabled
-                    withContext(Dispatchers.Main) {
-                        updateForegroundServiceTypesForWifiGate(enabled)
-                    }
-                }
-            }
-            launch {
-                prefs.selectedWifiSsid.collect { ssid ->
-                    selectedWifiSsid = ssid
-                }
-            }
-
-            // Start the first scan immediately, then schedule
-            handler.post(periodicScanRunnable)
+        } finally {
+            revokeLease()
         }
     }
 
-    private fun performScan() {
-        serviceScope.launch {
-            val wifiDecision = if (wifiScanGateEnabled) {
-                val foregroundReady = withContext(Dispatchers.Main) {
-                    updateForegroundServiceTypesForWifiGate(enabled = true)
-                }
-                if (!foregroundReady) {
-                    withContext(Dispatchers.Main) {
-                        updateNotification("Open app to enable Wi-Fi checks")
-                    }
-                    return@launch
-                }
-                wifiNetworkGate.evaluate(
-                    gateEnabled = true,
-                    selectedSsid = selectedWifiSsid
-                )
-            } else {
-                null
+    private suspend fun performCycle(config: Config) {
+        val token = cycles.begin()
+        cycleRunning = true
+        try {
+            if (!gateAllows(config)) return
+            currentCoroutineContext().ensureActive()
+            if (!started || !cycles.isCurrent(token)) return
+            val lease = scanner.acquire("background", config.addresses)
+            if (lease == null) {
+                publish("Blocked", scanner.status.value.error ?: "Bluetooth unavailable")
+                return
             }
-
-            withContext(Dispatchers.Main) {
-                if (wifiDecision != null && !wifiDecision.canScan) {
-                    Log.i(TAG, "Wi-Fi gate blocked scan: reason=${wifiDecision.blockedReason}")
-                    updateNotification(wifiBlockedNotificationText(wifiDecision.blockedReason))
-                    return@withContext
-                }
-                if (wifiDecision != null) {
-                    Log.i(TAG, "Wi-Fi gate allowed scan")
-                }
-                performBluetoothScan()
-            }
+            activeLease = lease
+            publish(if (config.addresses.isEmpty()) "No watched devices" else "Scanning", scanner.status.value.error)
+            if (config.addresses.isNotEmpty()) delay(config.duration * 1000L)
+            currentCoroutineContext().ensureActive()
+            if (!cycles.isCurrent(token) || !started || !gateAllows(config)) return
+            val results = lease.devices.value.values.toList()
+            scanner.release(lease)
+            activeLease = null
+            // Persist actual observations before any delivery preference or cooldown decision.
+            ObservationRepository.get(applicationContext).record(results, DetectionSource.BACKGROUND)
+            currentCoroutineContext().ensureActive()
+            if (!cycles.isCurrent(token) || !started) return
+            prefs.recordBackgroundScan(System.currentTimeMillis(), results.size)
+            evaluateAlerts(results, token)
+            currentCoroutineContext().ensureActive()
+            if (started && cycles.isCurrent(token)) publish("Waiting", scanner.status.value.error)
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            Log.e("BTScanService", "background scan cycle failed", error)
+            if (started && cycles.isCurrent(token)) publish("Blocked", "Scan failed: ${error.message ?: error.javaClass.simpleName}")
+        } finally {
+            revokeLease()
+            cycleRunning = false
         }
     }
 
-    private fun updateForegroundServiceTypesForWifiGate(enabled: Boolean): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
-
-        val desiredTypes = if (enabled && wifiNetworkGate.hasLocationForegroundPrerequisites()) {
-            wifiForegroundServiceType()
-        } else {
-            baseForegroundServiceType()
-        }
-        if (activeForegroundServiceTypes == desiredTypes) return true
-
-        val notification = NotificationHelper.buildServiceNotification(this, "Bluetooth scanning active")
-        val updated = startForegroundWithTypes(desiredTypes, notification)
-        if (!updated && desiredTypes == wifiForegroundServiceType()) {
-            Log.w(TAG, "Cannot add location foreground-service type for Wi-Fi checks")
-            return false
-        }
-        return updated
-    }
-
-    private fun startForegroundWithTypes(types: Int, notification: Notification): Boolean {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NotificationHelper.NOTIFICATION_ID_SERVICE,
-                    notification,
-                    types
-                )
-                activeForegroundServiceTypes = types
-            } else {
-                startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
-            }
-            true
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Cannot start foreground service with types=$types", e)
-            false
-        }
-    }
-
-    private fun baseForegroundServiceType(): Int {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-        } else {
-            0
-        }
-    }
-
-    private fun wifiForegroundServiceType(): Int {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        } else {
-            0
-        }
-    }
-
-    private fun performBluetoothScan() {
-        if (!scanner.isBluetoothEnabled) {
-            updateNotification("Bluetooth is off - waiting")
-            return
-        }
-
-        Log.i(TAG, "Bluetooth scan started")
-        updateNotification("Scanning for devices...")
-        scanner.startScan()
-
-        // Stop scan after duration and check results
-        handler.postDelayed({
-            scanner.stopScan()
-            checkForWatchedDevices()
-            Log.i(TAG, "Bluetooth scan stopped")
-            updateNotification("Next scan in $scanIntervalMinutes min")
-        }, scanDurationSeconds * 1000L)
-    }
-
-    private fun wifiBlockedNotificationText(reason: WifiNetworkGate.BlockedReason?): String {
-        return when (reason) {
+    private suspend fun gateAllows(config: Config): Boolean {
+        if (!config.wifi) return true
+        val decision = withContext(Dispatchers.IO) { wifiGate.evaluate(true, config.ssid) }
+        currentCoroutineContext().ensureActive()
+        if (decision.canScan) return true
+        val message = when (decision.blockedReason) {
             WifiNetworkGate.BlockedReason.NO_SELECTED_NETWORK -> "Select Wi-Fi in Settings"
             WifiNetworkGate.BlockedReason.MISSING_WIFI_PERMISSION -> "Waiting for Wi-Fi permissions"
             WifiNetworkGate.BlockedReason.LOCATION_DISABLED -> "Waiting for Location to check Wi-Fi"
             WifiNetworkGate.BlockedReason.WIFI_DISABLED -> "Wi-Fi is off - waiting"
-            WifiNetworkGate.BlockedReason.TARGET_NOT_FOUND, null -> "Waiting for selected Wi-Fi"
+            else -> "Waiting for selected Wi-Fi"
         }
+        if (started) publish("Blocked", message)
+        return false
     }
 
-    private fun checkForWatchedDevices() {
-        serviceScope.launch {
-            val shouldNotify = prefs.notifyOnFind.first()
-            if (!shouldNotify) return@launch
-
-            val watchedDevices = db.watchedDeviceDao().getAll()
-            if (watchedDevices.isEmpty()) return@launch
-
-            val scanned = scanner.devices.value
+    private suspend fun evaluateAlerts(results: List<ScannedDevice>, token: Long) {
+        val notifyEnabled = prefs.notifyOnFind.first()
+        val watched = db.watchedDeviceDao().getAll()
+        val byAddress = results.associateBy { it.address }
+        for (device in watched) {
+            currentCoroutineContext().ensureActive()
+            if (!started || !cycles.isCurrent(token)) return
+            val found = byAddress[device.address.uppercase()] ?: continue
             val now = System.currentTimeMillis()
-
-            for (watched in watchedDevices) {
-                if (!watched.alertEnabled) continue
-                val found = scanned[watched.address] ?: continue
-
-                val lastAlert = lastAlertTime[watched.address] ?: 0L
-                if (now - lastAlert < ALERT_COOLDOWN_MS) continue
-
-                lastAlertTime[watched.address] = now
-                db.watchedDeviceDao().updateLastSeen(watched.address, now)
-                rememberActualName(watched.address, found.name)
-
-                val metadata = db.deviceMetadataDao().getByAddress(watched.address)
-                val name = DeviceDisplayName.resolve(
-                    alias = metadata?.customName,
-                    primaryName = found.name,
-                    secondaryName = metadata?.lastSeenName ?: watched.name.takeIf { it.isNotBlank() },
-                    fallback = watched.address
-                )
-                Log.i(TAG, "Watched device found: $name (${watched.address})")
-                NotificationHelper.sendDeviceFoundAlert(applicationContext, name, watched.address)
+            if (!alerts.shouldAlert(notifyEnabled, device.alertEnabled, lastAlerts[device.address], now)) continue
+            val metadata = db.deviceMetadataDao().getByAddress(device.address)
+            currentCoroutineContext().ensureActive()
+            if (!started || !cycles.isCurrent(token)) return
+            val name = DeviceDisplayName.resolve(metadata?.customName, found.name,
+                metadata?.lastSeenName ?: device.name, device.address)
+            try {
+                NotificationHelper.sendDeviceFoundAlert(applicationContext, name, device.address)
+                lastAlerts[device.address] = now
+            } catch (error: SecurityException) {
+                Log.e("BTScanService", "post watched-device alert denied", error)
             }
         }
     }
 
-    private suspend fun rememberActualName(address: String, actualName: String?) {
-        val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName) ?: return
-        val metaDao = db.deviceMetadataDao()
-        val existing = metaDao.getByAddress(address)
-        if (existing != null) {
-            metaDao.setLastSeenName(address, normalizedActualName)
-        } else {
-            metaDao.upsert(DeviceMetadata(address, lastSeenName = normalizedActualName))
-        }
-        db.watchedDeviceDao().updateName(address, normalizedActualName)
+    private fun revokeLease() {
+        cycles.cancel()
+        activeLease?.let { scanner.release(it) }
+        activeLease = null
     }
 
-    private fun updateNotification(text: String) {
-        val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-        nm.notify(
-            NotificationHelper.NOTIFICATION_ID_SERVICE,
-            NotificationHelper.buildServiceNotification(this, text)
-        )
+    private fun publish(phase: String, error: String? = null) {
+        if (!started) return
+        MonitoringStatus.update(MonitoringSnapshot(true, phase, error = error))
+        val message = error ?: when (phase) { "Waiting" -> "Waiting for next scan"; else -> phase }
+        try {
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(
+                NotificationHelper.NOTIFICATION_ID_SERVICE, NotificationHelper.buildServiceNotification(this, message))
+        } catch (failure: SecurityException) { Log.e("BTScanService", "update monitoring notification denied", failure) }
     }
 
-    private fun stopForegroundService() {
-        handler.removeCallbacks(periodicScanRunnable)
-        scanner.stopScan()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
+    private fun enterForeground(types: Int, text: String): Boolean {
+        if (foregroundTypes == types && started) return true
+        val notification: Notification = NotificationHelper.buildServiceNotification(this, text)
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification, types)
+            } else startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
+            foregroundTypes = types
+            true
+        } catch (error: SecurityException) {
+            Log.e("BTScanService", "start foreground service types=$types permission denied", error)
+            false
+        } catch (error: IllegalStateException) {
+            Log.e("BTScanService", "start foreground service types=$types restricted by Android", error)
+            false
         }
-        activeForegroundServiceTypes = 0
+    }
+
+    private fun baseTypes(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
+    private fun wifiTypes(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) baseTypes() or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
+
+    private fun stopMonitoring(error: String? = null) {
+        started = false
+        scope.cancel()
+        revokeLease()
+        MonitoringStatus.update(MonitoringSnapshot(false, if (error == null) "Stopped" else "Needs resume", error = error))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE)
+        else { @Suppress("DEPRECATION") stopForeground(true) }
+        foregroundTypes = 0
         stopSelf()
     }
+
+    override fun onDestroy() {
+        started = false
+        scope.cancel()
+        revokeLease()
+        if (MonitoringStatus.state.value.running) MonitoringStatus.update(MonitoringSnapshot())
+        super.onDestroy()
+    }
+    override fun onBind(intent: Intent?): IBinder? = null
 }

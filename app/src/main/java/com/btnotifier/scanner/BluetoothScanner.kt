@@ -1,10 +1,13 @@
 package com.btnotifier.scanner
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
@@ -13,6 +16,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,174 +30,254 @@ data class ScannedDevice(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-class BluetoothScanner(private val context: Context) {
+data class ScannerStatus(
+    val isScanning: Boolean = false,
+    val bleScanning: Boolean = false,
+    val classicScanning: Boolean = false,
+    val error: String? = null
+)
 
-    private val tag = "BluetoothScanner"
-    private val bluetoothAdapter: BluetoothAdapter? by lazy {
+class ScanLease internal constructor(internal val token: Long, val owner: String) {
+    internal val acquiredAtNanos = SystemClock.elapsedRealtimeNanos()
+    internal val results = MutableStateFlow<Map<String, ScannedDevice>>(emptyMap())
+    val devices: StateFlow<Map<String, ScannedDevice>> = results
+}
+
+class BluetoothScanner private constructor(private val context: Context) {
+    companion object {
+        @Volatile private var instance: BluetoothScanner? = null
+        fun getInstance(context: Context): BluetoothScanner = instance ?: synchronized(this) {
+            instance ?: BluetoothScanner(context.applicationContext).also { instance = it }
+        }
+    }
+
+    private val lock = Any()
+    private val registry = ScanLeaseRegistry()
+    private val leases = linkedMapOf<Long, ScanLease>()
+    private val mutableDevices = MutableStateFlow<Map<String, ScannedDevice>>(emptyMap())
+    val devices: StateFlow<Map<String, ScannedDevice>> = mutableDevices
+    private val mutableStatus = MutableStateFlow(ScannerStatus())
+    val status: StateFlow<ScannerStatus> = mutableStatus
+    private val errors = linkedMapOf<String, String>()
+    private var bleScanner: BluetoothLeScanner? = null
+    private var bleCallback: ScanCallback? = null
+    private var appliedAddresses: Set<String>? = emptySet()
+    private var classicReceiver: BroadcastReceiver? = null
+    private var classicGeneration = 0L
+    private var bleRunning = false
+    private var classicRunning = false
+
+    private fun adapter(): BluetoothAdapter? = guarded("read Bluetooth adapter") {
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
     }
 
-    private val _devices = MutableStateFlow<Map<String, ScannedDevice>>(emptyMap())
-    val devices: StateFlow<Map<String, ScannedDevice>> = _devices
-
-    private var isScanning = false
-    private var classicReceiver: BroadcastReceiver? = null
-
-    private val bleScanCallback = object : ScanCallback() {
-        override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val device = result.device
-            // Read name only if BLUETOOTH_CONNECT is granted; still add the device without it.
-            val name = if (hasConnectPermission()) {
-                try { device.name ?: "" } catch (e: SecurityException) { "" }
-            } else ""
-            addDevice(
-                ScannedDevice(
-                    address = device.address,
-                    name = name,
-                    rssi = result.rssi,
-                    isBle = true
-                )
-            )
-        }
-
-        override fun onBatchScanResults(results: List<ScanResult>) {
-            results.forEach { onScanResult(0, it) }
-        }
-
-        override fun onScanFailed(errorCode: Int) {
-            Log.w(tag, "BLE scan failed: $errorCode")
-        }
-    }
-
-    fun startScan() {
-        if (isScanning) return
-        val adapter = bluetoothAdapter ?: return
-        if (!adapter.isEnabled) return
-
-        isScanning = true
-        _devices.value = emptyMap()
-
-        startBleScan(adapter)
-        startClassicScan(adapter)
-    }
-
-    fun stopScan() {
-        if (!isScanning) return
-        isScanning = false
-
-        stopBleScan()
-        stopClassicScan()
-    }
-
-    fun clearDevices() {
-        _devices.value = emptyMap()
-    }
+    val hasPermissions: Boolean
+        get() = hasPermission(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            Manifest.permission.BLUETOOTH_SCAN else Manifest.permission.ACCESS_FINE_LOCATION) &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || hasPermission(Manifest.permission.BLUETOOTH_CONNECT))
 
     val isBluetoothEnabled: Boolean
-        get() = bluetoothAdapter?.isEnabled == true
+        get() = synchronized(lock) { guarded("read Bluetooth enabled") { adapter()?.isEnabled == true } ?: false }
 
-    private fun startBleScan(adapter: BluetoothAdapter) {
-        if (!hasScanPermission()) return
-        val scanner = adapter.bluetoothLeScanner ?: return
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
-        try {
-            scanner.startScan(null, settings, bleScanCallback)
-        } catch (e: SecurityException) {
-            Log.e(tag, "BLE scan permission denied", e)
+    fun acquire(owner: String, addresses: Set<String>? = null): ScanLease? = synchronized(lock) {
+        val normalized = addresses?.map { it.uppercase() }?.toSet()
+        if (normalized == null || normalized.isNotEmpty()) {
+            if (!hasPermissions || !isBluetoothEnabled) {
+                errors["availability"] = if (!hasPermissions) "Bluetooth permissions required" else "Bluetooth is off or unavailable"
+                publishStatus()
+                return@synchronized null
+            }
         }
+        errors.remove("availability")
+        val lease = ScanLease(registry.acquire(normalized), owner)
+        leases[lease.token] = lease
+        reconcile()
+        lease
     }
 
-    private fun stopBleScan() {
-        if (!hasScanPermission()) return
-        try {
-            bluetoothAdapter?.bluetoothLeScanner?.stopScan(bleScanCallback)
-        } catch (e: SecurityException) {
-            Log.e(tag, "BLE stop scan error", e)
-        }
+    fun release(lease: ScanLease) = synchronized(lock) {
+        if (leases[lease.token] !== lease) return@synchronized
+        leases.remove(lease.token)
+        registry.release(lease.token)
+        reconcile()
     }
 
-    private fun startClassicScan(adapter: BluetoothAdapter) {
-        if (!hasScanPermission()) return
+    fun clearDevices() = synchronized(lock) { mutableDevices.value = emptyMap() }
+
+    private fun reconcile() {
+        val interested = registry.hasInterest()
+        val wanted = registry.effectiveAddresses()
+        if (!interested) {
+            stopBle()
+            stopClassic()
+        } else {
+            if (bleCallback == null || appliedAddresses != wanted) {
+                stopBle()
+                startBle(wanted)
+            }
+            if (classicReceiver == null) startClassic()
+        }
+        publishStatus()
+    }
+
+    private fun startBle(addresses: Set<String>?) {
+        val generation = registry.restartBleGeneration()
+        appliedAddresses = addresses
+        errors.remove("ble")
+        val driver = guarded("get BLE scanner") { adapter()?.bluetoothLeScanner }
+        if (driver == null) {
+            if (!errors.containsKey("ble")) errors["ble"] = "BLE scanner unavailable"
+            return
+        }
+        val callback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult): Unit = synchronized(lock) {
+                if (!registry.acceptsBleGeneration(generation)) return@synchronized
+                val receivedAt = SystemClock.elapsedRealtimeNanos()
+                val observedAt = result.timestampNanos.coerceIn(0L, receivedAt)
+                val ageMs = (receivedAt - observedAt) / 1_000_000L
+                readDevice(result.device, result.rssi, true)?.let {
+                    publishDevice(it.copy(timestamp = System.currentTimeMillis() - ageMs), observedAt)
+                }
+            }
+            override fun onBatchScanResults(results: List<ScanResult>) { results.forEach { onScanResult(0, it) } }
+            override fun onScanFailed(errorCode: Int): Unit = synchronized(lock) {
+                if (!registry.acceptsBleGeneration(generation)) return@synchronized
+                bleRunning = false
+                errors["ble"] = "BLE scan failed ($errorCode)"
+                Log.w("BluetoothScanner", errors["ble"].orEmpty())
+                publishStatus()
+            }
+        }
+        bleScanner = driver
+        bleCallback = callback
+        val filters = addresses?.map { ScanFilter.Builder().setDeviceAddress(it).build() }
+        bleRunning = guarded("start BLE scan") {
+            driver.startScan(filters, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), callback)
+            true
+        } == true
+        if (!bleRunning && !errors.containsKey("ble")) errors["ble"] = "BLE scan could not start"
+    }
+
+    // guarded catches permission revocation during cleanup and reports operation plus cause.
+    @SuppressLint("MissingPermission")
+    private fun stopBle() {
+        registry.restartBleGeneration()
+        val callback = bleCallback
+        bleCallback = null
+        bleRunning = false
+        if (callback != null) guarded("stop BLE scan") { bleScanner?.stopScan(callback) }
+        bleScanner = null
+    }
+
+    private fun startClassic() {
+        val generation = ++classicGeneration
+        errors.remove("classic")
         val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
+            override fun onReceive(context: Context, intent: Intent): Unit = synchronized(lock) {
+                if (generation != classicGeneration || !registry.hasInterest()) return@synchronized
                 when (intent.action) {
                     BluetoothDevice.ACTION_FOUND -> {
-                        val device: BluetoothDevice? =
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                            } else {
-                                @Suppress("DEPRECATION")
-                                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                            }
-                        val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
-                        device?.let {
-                            val name = try { it.name ?: "" } catch (e: SecurityException) { "" }
-                            addDevice(
-                                ScannedDevice(
-                                    address = it.address,
-                                    name = name,
-                                    rssi = rssi,
-                                    isBle = false
-                                )
-                            )
+                        val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                         }
+                        val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
+                        device?.let { readDevice(it, rssi, false) }?.let { publishDevice(it) }
+                    }
+                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                        classicRunning = false
+                        startClassicDiscovery()
+                        publishStatus()
                     }
                 }
             }
         }
         classicReceiver = receiver
-        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
-        context.registerReceiver(receiver, filter)
-        try {
-            if (adapter.isDiscovering) adapter.cancelDiscovery()
-            adapter.startDiscovery()
-        } catch (e: SecurityException) {
-            Log.e(tag, "Classic scan permission denied", e)
+        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND).apply { addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED) }
+        val registered = guarded("register classic receiver") {
+            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+            true
+        } == true
+        if (!registered) { classicReceiver = null; return }
+        startClassicDiscovery()
+    }
+
+    // guarded catches permission revocation between lease acquisition and adapter access.
+    @SuppressLint("MissingPermission")
+    private fun startClassicDiscovery() {
+        if (!registry.hasInterest()) return
+        classicRunning = guarded("start classic discovery") {
+            val driver = adapter() ?: return@guarded false
+            driver.isDiscovering || driver.startDiscovery()
+        } == true
+        if (!classicRunning && !errors.containsKey("classic")) errors["classic"] = "Classic discovery could not start"
+    }
+
+    // Cleanup must still be attempted after revocation; guarded handles SecurityException.
+    @SuppressLint("MissingPermission")
+    private fun stopClassic() {
+        val ownedDiscovery = classicReceiver != null
+        classicGeneration++
+        classicReceiver?.let { receiver ->
+            try { context.unregisterReceiver(receiver) }
+            catch (error: IllegalArgumentException) { Log.w("BluetoothScanner", "unregister classic receiver failed", error) }
+        }
+        classicReceiver = null
+        classicRunning = false
+        if (ownedDiscovery) guarded("cancel classic discovery") { adapter()?.cancelDiscovery() }
+    }
+
+    // Device getters race runtime permission changes; guarded logs and publishes that failure.
+    @SuppressLint("MissingPermission")
+    private fun readDevice(device: BluetoothDevice, rssi: Int, ble: Boolean): ScannedDevice? =
+        guarded("read discovered device") { ScannedDevice(device.address.uppercase(), device.name.orEmpty(), rssi, ble) }
+
+    private fun publishDevice(device: ScannedDevice, observedAtNanos: Long = SystemClock.elapsedRealtimeNanos()) {
+        if (!hasPermissions) {
+            errors["availability"] = "Bluetooth permissions were revoked"
+            stopBle()
+            stopClassic()
+            publishStatus()
+            return
+        }
+        val previous = mutableDevices.value[device.address]
+        if (previous == null || device.timestamp >= previous.timestamp) {
+            mutableDevices.value = mutableDevices.value + (device.address to device.copy(name = device.name.ifBlank { previous?.name.orEmpty() }))
+        }
+        leases.values.forEach { lease ->
+            if (observedAtNanos >= lease.acquiredAtNanos && registry.accepts(lease.token, device.address)) {
+                val old = lease.results.value[device.address]
+                if (old == null || device.timestamp >= old.timestamp) {
+                    lease.results.value = lease.results.value + (device.address to device.copy(name = device.name.ifBlank { old?.name.orEmpty() }))
+                }
+            }
         }
     }
 
-    private fun stopClassicScan() {
-        classicReceiver?.let {
-            try { context.unregisterReceiver(it) } catch (_: Exception) {}
-            classicReceiver = null
-        }
-        if (!hasScanPermission()) return
-        try {
-            bluetoothAdapter?.cancelDiscovery()
-        } catch (e: SecurityException) {
-            Log.e(tag, "Classic cancel discovery error", e)
-        }
+    private fun publishStatus() {
+        mutableStatus.value = ScannerStatus(bleRunning || classicRunning, bleRunning, classicRunning,
+            errors.values.takeIf { it.isNotEmpty() }?.joinToString("; "))
     }
 
-    private fun addDevice(device: ScannedDevice) {
-        val current = _devices.value.toMutableMap()
-        val existing = current[device.address]
-        // Keep the better name if we already have one
-        val bestName = when {
-            device.name.isNotBlank() -> device.name
-            existing?.name?.isNotBlank() == true -> existing.name
-            else -> ""
-        }
-        current[device.address] = device.copy(name = bestName)
-        _devices.value = current
-    }
+    private fun hasPermission(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
-    private fun hasScanPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
-                    PackageManager.PERMISSION_GRANTED
-        } else {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-                    PackageManager.PERMISSION_GRANTED
-        }
+    private inline fun <T> guarded(operation: String, block: () -> T): T? = try {
+        block().also { errors.remove(operation) }
     }
-
-    private fun hasConnectPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
-                    PackageManager.PERMISSION_GRANTED
-        } else true
+    catch (error: SecurityException) {
+        Log.e("BluetoothScanner", "$operation denied", error)
+        errors[operation] = "$operation: permission denied"
+        bleRunning = false
+        classicRunning = false
+        publishStatus()
+        null
+    } catch (error: IllegalStateException) {
+        Log.e("BluetoothScanner", "$operation failed", error)
+        errors[operation] = "$operation: ${error.message ?: error.javaClass.simpleName}"
+        publishStatus()
+        null
     }
 }

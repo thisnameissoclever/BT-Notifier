@@ -79,6 +79,19 @@
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_find"
+            style="@style/Widget.Material3.Button.TextButton.Icon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="12dp"
+            android:contentDescription="@string/find_device"
+            app:icon="@drawable/ic_find"
+            app:iconSize="24dp"
+            app:iconPadding="0dp" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_watch"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

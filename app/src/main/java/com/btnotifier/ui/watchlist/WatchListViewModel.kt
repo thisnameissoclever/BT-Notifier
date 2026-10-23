@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.data.WatchedDevice
@@ -57,23 +58,27 @@ class WatchListViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun renameDevice(address: String, newName: String, actualName: String?) {
         viewModelScope.launch {
-            val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName)
-            val existing = metaDao.getByAddress(address)
-            val watched = dao.getByAddress(address)
-            metaDao.upsert(
-                (existing ?: DeviceMetadata(address)).copy(
-                    customName = DeviceDisplayName.normalizeAlias(newName),
-                    lastSeenName = DeviceDisplayName.retainedLastSeenName(
-                        existingAlias = existing?.customName,
-                        existingLastSeenName = existing?.lastSeenName,
-                        actualName = normalizedActualName
+            db.withTransaction {
+                val existing = metaDao.getByAddress(address)
+                val normalizedActualName = if (existing?.lastObservedAt == null) {
+                    DeviceDisplayName.normalizeActualName(actualName)
+                } else null
+                val watched = dao.getByAddress(address)
+                metaDao.upsert(
+                    (existing ?: DeviceMetadata(address)).copy(
+                        customName = DeviceDisplayName.normalizeAlias(newName),
+                        lastSeenName = DeviceDisplayName.retainedLastSeenName(
+                            existingAlias = existing?.customName,
+                            existingLastSeenName = existing?.lastSeenName,
+                            actualName = normalizedActualName
+                        )
                     )
                 )
-            )
-            when {
-                normalizedActualName != null -> dao.updateName(address, normalizedActualName)
-                DeviceDisplayName.storedNameLooksLikeAlias(existing?.customName, watched?.name) ->
-                    dao.updateName(address, "")
+                when {
+                    normalizedActualName != null -> dao.updateName(address, normalizedActualName)
+                    DeviceDisplayName.storedNameLooksLikeAlias(existing?.customName, watched?.name) ->
+                        dao.updateName(address, "")
+                }
             }
         }
     }

@@ -13,25 +13,30 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.btnotifier.data.PreferencesManager
 import com.btnotifier.databinding.ActivityMainBinding
 import com.btnotifier.service.BluetoothScanService
+import com.btnotifier.service.MonitoringServiceStarter
+import com.btnotifier.scanner.BluetoothScanner
+import com.btnotifier.utils.NotificationHelper
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private var permissionRequestInFlight = false
 
     // Request all required permissions at launch; start the service only after the
     // Bluetooth permissions are decided (granted or denied - we handle both cases).
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        // Always attempt - startBackgroundService() guards internally.
-        startBackgroundServiceIfPermitted()
+        permissionRequestInFlight = false
+        startBackgroundServiceIfPermitted(requestMissingPermissions = false)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,7 +50,29 @@ class MainActivity : AppCompatActivity() {
             .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
         binding.bottomNavigation.setupWithNavController(navHost.navController)
 
+        showRequestedDestination(intent)
         requestPermissionsAndStartService()
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (!permissionRequestInFlight) {
+            startBackgroundServiceIfPermitted(requestMissingPermissions = false)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        showRequestedDestination(intent)
+    }
+
+    private fun showRequestedDestination(intent: Intent?) {
+        if (intent?.action != NotificationHelper.ACTION_RESUME_MONITORING) return
+        val navHost = supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
+        if (navHost.navController.currentDestination?.id != R.id.healthFragment) {
+            navHost.navController.navigate(R.id.healthFragment)
+        }
     }
 
     private fun configureSystemBars() {
@@ -79,36 +106,48 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (needed.isEmpty()) {
-            startBackgroundServiceIfPermitted()
+            startBackgroundServiceIfPermitted(requestMissingPermissions = false)
         } else {
+            permissionRequestInFlight = true
             permissionLauncher.launch(needed.toTypedArray())
         }
     }
 
     /**
      * Starts the foreground service only when:
-     * 1. The Bluetooth permission required by connectedDevice foreground-service type is granted.
+     * 1. The required Bluetooth permissions are granted.
      * 2. The user hasn't toggled the service off in Settings.
      */
-    fun startBackgroundServiceIfPermitted() {
-        val hasBluetoothPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) ==
-                    PackageManager.PERMISSION_GRANTED
-        } else {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
-                    PackageManager.PERMISSION_GRANTED
+    fun startBackgroundServiceIfPermitted(requestMissingPermissions: Boolean = true) {
+        if (!BluetoothScanner.getInstance(this).hasPermissions) {
+            if (requestMissingPermissions && !permissionRequestInFlight) {
+                requestPermissionsAndStartService()
+            }
+            return
         }
-        if (!hasBluetoothPermission) return
 
         lifecycleScope.launch {
             val enabled = PreferencesManager(this@MainActivity).serviceEnabled.first()
-            if (!enabled) return@launch
-            ContextCompat.startForegroundService(
-                this@MainActivity,
-                Intent(this@MainActivity, BluetoothScanService::class.java).apply {
-                    action = BluetoothScanService.ACTION_START
+            if (!enabled || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@launch
+            MonitoringServiceStarter.start(this@MainActivity, userInitiated = true)
+        }
+    }
+
+    fun setBackgroundMonitoringEnabled(enabled: Boolean) {
+        lifecycleScope.launch {
+            val prefs = PreferencesManager(applicationContext)
+            prefs.setServiceEnabled(enabled)
+            if (enabled) {
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    startBackgroundServiceIfPermitted()
+                } else {
+                    prefs.setMonitoringResumeRequired(true, "Open the app to start monitoring.")
                 }
-            )
+            } else {
+                prefs.setMonitoringResumeRequired(false, "")
+                NotificationHelper.cancelResumeNotification(applicationContext)
+                applicationContext.stopService(Intent(applicationContext, BluetoothScanService::class.java))
+            }
         }
     }
 }

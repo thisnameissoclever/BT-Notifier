@@ -12,7 +12,8 @@ class DeviceAdapter(
     private val onAddClick: (NearbyViewModel.DeviceItem) -> Unit,
     private val onRemoveClick: (NearbyViewModel.DeviceItem) -> Unit,
     private val onHideClick: (NearbyViewModel.DeviceItem) -> Unit,
-    private val onRenameClick: (NearbyViewModel.DeviceItem) -> Unit
+    private val onRenameClick: (NearbyViewModel.DeviceItem) -> Unit,
+    private val onFindClick: (NearbyViewModel.DeviceItem) -> Unit
 ) : ListAdapter<NearbyViewModel.DeviceItem, DeviceAdapter.ViewHolder>(DIFF) {
 
     companion object {
@@ -47,6 +48,7 @@ class DeviceAdapter(
                 true
             }
             binding.btnHide.setOnClickListener { onHideClick(item) }
+            binding.btnFind.setOnClickListener { onFindClick(item) }
 
             if (item.isWatched) {
                 binding.btnWatch.text = "Watching"

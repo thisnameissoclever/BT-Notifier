@@ -6,16 +6,19 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.btnotifier.data.history.DetectionHistoryDao
+import com.btnotifier.data.history.DetectionObservation
 
 @Database(
-    entities = [WatchedDevice::class, DeviceMetadata::class],
-    version = 3,
+    entities = [WatchedDevice::class, DeviceMetadata::class, DetectionObservation::class],
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun watchedDeviceDao(): WatchedDeviceDao
     abstract fun deviceMetadataDao(): DeviceMetadataDao
+    abstract fun detectionHistoryDao(): DetectionHistoryDao
 
     companion object {
         @Volatile
@@ -39,6 +42,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE device_metadata ADD COLUMN lastObservedAt INTEGER")
+                db.execSQL("""UPDATE device_metadata SET lastObservedAt =
+                    (SELECT lastSeenAt FROM watched_devices WHERE watched_devices.address = device_metadata.address)""")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS detection_history (
+                    address TEXT NOT NULL,
+                    minuteBucket INTEGER NOT NULL,
+                    observedName TEXT NOT NULL,
+                    rssi INTEGER NOT NULL,
+                    isBle INTEGER NOT NULL,
+                    observedAt INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    PRIMARY KEY(address, minuteBucket)
+                )""")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_detection_history_observedAt ON detection_history(observedAt)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -46,7 +68,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bt_notifier.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }

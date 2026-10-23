@@ -12,7 +12,8 @@ import java.util.*
 class WatchedDeviceAdapter(
     private val onDelete: (WatchListViewModel.WatchedDeviceItem) -> Unit,
     private val onAlertToggle: (WatchListViewModel.WatchedDeviceItem, Boolean) -> Unit,
-    private val onRename: (WatchListViewModel.WatchedDeviceItem) -> Unit
+    private val onRename: (WatchListViewModel.WatchedDeviceItem) -> Unit,
+    private val onFind: (WatchListViewModel.WatchedDeviceItem) -> Unit
 ) : ListAdapter<WatchListViewModel.WatchedDeviceItem, WatchedDeviceAdapter.ViewHolder>(DIFF) {
 
     companion object {
@@ -46,6 +47,7 @@ class WatchedDeviceAdapter(
                 onAlertToggle(item, checked)
             }
             binding.btnDelete.setOnClickListener { onDelete(item) }
+            binding.btnFind.setOnClickListener { onFind(item) }
             binding.root.setOnLongClickListener {
                 onRename(item)
                 true

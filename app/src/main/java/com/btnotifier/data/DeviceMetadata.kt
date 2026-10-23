@@ -8,5 +8,6 @@ data class DeviceMetadata(
     @PrimaryKey val address: String,
     val customName: String? = null,
     val lastSeenName: String? = null,
-    val isHidden: Boolean = false
+    val isHidden: Boolean = false,
+    val lastObservedAt: Long? = null
 )

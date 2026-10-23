@@ -13,6 +13,8 @@ import com.btnotifier.R
 
 object NotificationHelper {
 
+    const val ACTION_RESUME_MONITORING = "com.btnotifier.RESUME_MONITORING"
+    private const val NOTIFICATION_ID_RESUME = 1002
     const val CHANNEL_SERVICE = "bt_scan_service"
     const val CHANNEL_ALERT = "bt_device_found"
     const val NOTIFICATION_ID_SERVICE = 1001
@@ -56,6 +58,32 @@ object NotificationHelper {
             .setOngoing(true)
             .setSilent(true)
             .build()
+    }
+
+    fun showResumeNotification(context: Context, reason: String) {
+        createChannels(context)
+        val open = PendingIntent.getActivity(context, 1002,
+            Intent(context, MainActivity::class.java).setAction(ACTION_RESUME_MONITORING),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = NotificationCompat.Builder(context, CHANNEL_SERVICE)
+            .setContentTitle("Resume Bluetooth monitoring")
+            .setContentText(reason)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(reason))
+            .setSmallIcon(R.drawable.ic_bluetooth)
+            .setContentIntent(open)
+            .addAction(R.drawable.ic_bluetooth, "Resume", open)
+            .setAutoCancel(true)
+            .build()
+        try {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .notify(NOTIFICATION_ID_RESUME, notification)
+        } catch (error: SecurityException) {
+            android.util.Log.e("NotificationHelper", "post resume notification denied", error)
+        }
+    }
+
+    fun cancelResumeNotification(context: Context) {
+        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID_RESUME)
     }
 
     fun sendDeviceFoundAlert(context: Context, deviceDisplayName: String, deviceAddress: String) {

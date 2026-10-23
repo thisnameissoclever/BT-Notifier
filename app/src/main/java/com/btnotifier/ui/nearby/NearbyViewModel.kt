@@ -1,11 +1,19 @@
 package com.btnotifier.ui.nearby
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.asFlow
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
+import com.btnotifier.data.DetectionSource
+import com.btnotifier.data.history.ObservationRepository
+import com.btnotifier.scanner.ScanLease
+import com.btnotifier.service.CyclePolicy
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import com.btnotifier.data.AppDatabase
 import com.btnotifier.data.DeviceMetadata
 import com.btnotifier.data.WatchedDevice
@@ -19,7 +27,13 @@ import kotlinx.coroutines.launch
 
 class NearbyViewModel(application: Application) : AndroidViewModel(application) {
 
-    val scanner = BluetoothScanner(application)
+    val scanner = BluetoothScanner.getInstance(application)
+    private var lease: ScanLease? = null
+    private var stopJob: Job? = null
+    private var observationJob: Job? = null
+    private val timers = CyclePolicy()
+    private val mutableScanError = MutableLiveData<String?>()
+    val scanError: LiveData<String?> = mutableScanError
     private val db = AppDatabase.getInstance(application)
     private val dao = db.watchedDeviceDao()
     private val metaDao = db.deviceMetadataDao()
@@ -60,6 +74,10 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
             }
             .launchIn(viewModelScope)
 
+        scanner.status.onEach { status ->
+            mutableScanError.value = status.error
+            _isScanning.value = lease != null && status.isScanning
+        }.launchIn(viewModelScope)
         scanner.devices.onEach { _ -> rebuildDeviceList() }.launchIn(viewModelScope)
 
         watchedDevices.asFlow()
@@ -85,25 +103,54 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun startScan() {
-        if (_isScanning.value == true) return
-        scanner.clearDevices()
-        _isScanning.value = true
-        scanner.startScan()
-        viewModelScope.launch {
+        if (lease != null && _isScanning.value == true) return
+        stopScan()
+        val current = scanner.acquire("nearby") ?: run {
+            mutableScanError.value = scanner.status.value.error
+            return
+        }
+        lease = current
+        _isScanning.value = scanner.status.value.isScanning
+        val token = timers.begin()
+        observationJob = viewModelScope.launch {
+            current.devices.collect { devices ->
+                try {
+                    ObservationRepository.get(getApplication()).record(devices.values, DetectionSource.NEARBY)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.e("NearbyViewModel", "record nearby observations failed", error)
+                    mutableScanError.value = "Could not save nearby observations: ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
+        }
+        stopJob = viewModelScope.launch {
             delay(15_000)
-            stopScan()
+            if (timers.isCurrent(token) && lease === current) stopScan()
         }
     }
 
     fun stopScan() {
-        scanner.stopScan()
+        timers.cancel()
+        stopJob?.cancel()
+        stopJob = null
+        observationJob?.cancel()
+        observationJob = null
+        lease?.let { scanner.release(it) }
+        lease = null
         _isScanning.value = false
     }
-
     fun addToWatchList(device: ScannedDevice) {
         viewModelScope.launch {
-            rememberLastSeenName(device.address, device.name)
-            dao.insert(WatchedDevice(address = device.address, name = device.name))
+            db.withTransaction {
+                rememberLastSeenName(device.address, device.name, device.timestamp)
+                if (dao.getByAddress(device.address) == null) {
+                    val metadata = metaDao.getByAddress(device.address)
+                    dao.insert(WatchedDevice(address = device.address,
+                        name = metadata?.lastSeenName ?: device.name,
+                        lastSeenAt = maxOf(device.timestamp, metadata?.lastObservedAt ?: 0L)))
+                }
+            }
         }
     }
 
@@ -116,14 +163,19 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun hideDevice(device: ScannedDevice) {
         viewModelScope.launch {
-            val existing = metaDao.getByAddress(device.address)
-            metaDao.upsert(
-                (existing ?: DeviceMetadata(device.address)).copy(
-                    lastSeenName = DeviceDisplayName.normalizeActualName(device.name) ?: existing?.lastSeenName,
-                    isHidden = true
+            db.withTransaction {
+                val existing = metaDao.getByAddress(device.address)
+                val newestName = if ((existing?.lastObservedAt ?: 0L) > device.timestamp) existing?.lastSeenName
+                    else DeviceDisplayName.normalizeActualName(device.name) ?: existing?.lastSeenName
+                metaDao.upsert(
+                    (existing ?: DeviceMetadata(device.address)).copy(
+                        lastSeenName = newestName,
+                        lastObservedAt = maxOf(existing?.lastObservedAt ?: 0L, device.timestamp),
+                        isHidden = true
+                    )
                 )
-            )
-            dao.getByAddress(device.address)?.let { dao.delete(it) }
+                dao.getByAddress(device.address)?.let { dao.delete(it) }
+            }
         }
     }
 
@@ -133,39 +185,38 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun renameDevice(address: String, newName: String, actualName: String? = null) {
         viewModelScope.launch {
-            val name = DeviceDisplayName.normalizeAlias(newName)
-            val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName)
-            val existing = metaDao.getByAddress(address)
-            val watched = dao.getByAddress(address)
-            val updated = (existing ?: DeviceMetadata(address)).copy(
-                customName = name,
-                lastSeenName = DeviceDisplayName.retainedLastSeenName(
-                    existingAlias = existing?.customName,
-                    existingLastSeenName = existing?.lastSeenName,
-                    actualName = normalizedActualName
+            db.withTransaction {
+                val name = DeviceDisplayName.normalizeAlias(newName)
+                val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName)
+                val existing = metaDao.getByAddress(address)
+                val watched = dao.getByAddress(address)
+                val retainedName = if (existing?.lastObservedAt != null) existing.lastSeenName
+                    else DeviceDisplayName.retainedLastSeenName(existing?.customName, existing?.lastSeenName, normalizedActualName)
+                val updated = (existing ?: DeviceMetadata(address)).copy(
+                    customName = name,
+                    lastSeenName = retainedName
                 )
-            )
-            metaDao.upsert(updated)
-            when {
-                normalizedActualName != null -> dao.updateName(address, normalizedActualName)
-                DeviceDisplayName.storedNameLooksLikeAlias(existing?.customName, watched?.name) ->
-                    dao.updateName(address, "")
+                metaDao.upsert(updated)
+                if (DeviceDisplayName.storedNameLooksLikeAlias(existing?.customName, watched?.name)) {
+                    dao.updateName(address, retainedName.orEmpty())
+                }
             }
         }
     }
 
-    private suspend fun rememberLastSeenName(address: String, actualName: String?) {
+    private suspend fun rememberLastSeenName(address: String, actualName: String?, observedAt: Long) {
         val normalizedActualName = DeviceDisplayName.normalizeActualName(actualName) ?: return
         val existing = metaDao.getByAddress(address)
+        if ((existing?.lastObservedAt ?: 0L) > observedAt) return
         if (existing != null) {
-            metaDao.setLastSeenName(address, normalizedActualName)
+            metaDao.upsert(existing.copy(lastSeenName = normalizedActualName, lastObservedAt = observedAt))
         } else {
-            metaDao.upsert(DeviceMetadata(address, lastSeenName = normalizedActualName))
+            metaDao.upsert(DeviceMetadata(address, lastSeenName = normalizedActualName, lastObservedAt = observedAt))
         }
     }
 
     override fun onCleared() {
         super.onCleared()
-        scanner.stopScan()
+        stopScan()
     }
 }

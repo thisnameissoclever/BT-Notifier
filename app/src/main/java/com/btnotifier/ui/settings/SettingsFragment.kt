@@ -1,7 +1,6 @@
 package com.btnotifier.ui.settings
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -15,9 +14,9 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.btnotifier.data.PreferencesManager
+import com.btnotifier.MainActivity
 import com.btnotifier.databinding.FragmentSettingsBinding
 import com.btnotifier.network.WifiNetworkGate
-import com.btnotifier.service.BluetoothScanService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -67,7 +66,7 @@ class SettingsFragment : Fragment() {
     }
 
     private fun loadCurrentSettings() {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             isLoadingSettings = true
             val interval = prefs.scanIntervalMinutes.first()
             val duration = prefs.scanDurationSeconds.first()
@@ -147,17 +146,7 @@ class SettingsFragment : Fragment() {
 
         binding.switchService.setOnCheckedChangeListener { _, isChecked ->
             if (isLoadingSettings) return@setOnCheckedChangeListener
-            lifecycleScope.launch {
-                prefs.setServiceEnabled(isChecked)
-                val serviceIntent = Intent(requireContext(), BluetoothScanService::class.java).apply {
-                    action = if (isChecked) BluetoothScanService.ACTION_START else BluetoothScanService.ACTION_STOP
-                }
-                if (isChecked) {
-                    ContextCompat.startForegroundService(requireContext(), serviceIntent)
-                } else {
-                    requireContext().startService(serviceIntent)
-                }
-            }
+            (requireActivity() as MainActivity).setBackgroundMonitoringEnabled(isChecked)
         }
 
         binding.switchNotify.setOnCheckedChangeListener { _, isChecked ->
@@ -205,7 +194,7 @@ class SettingsFragment : Fragment() {
     }
 
     private fun refreshWifiNetworks(requestScan: Boolean, selectedWifiSsid: String? = null) {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             val selected = selectedWifiSsid ?: prefs.selectedWifiSsid.first()
             val result = withContext(Dispatchers.IO) {
                 wifiGate.availableSsids(requestScan = requestScan)

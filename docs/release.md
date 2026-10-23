@@ -33,6 +33,10 @@ Back up both upload-key files to a secure location. The encrypted password file 
 
 ## Verification
 
+For releases that change scanning or history, assemble and run the Android instrumentation tests on an exclusively reserved emulator. Verify an in-place upgrade, retained watch-list and settings data, navigation, history export, monitoring stop/start, and scan ownership when switching between Nearby, Finder, and background monitoring. Record the candidate, base, commands, environment, results, and platform limitations under `docs/evidence/`.
+
+An API 36 emulator without Bluetooth radio hardware cannot establish Android 17 radio discovery, screen-off advertising reception, or real-device battery behavior. Record those gaps explicitly. Wi-Fi-gated monitoring requires a visible app start after reboot under Android's location-service restrictions; verify the resume action rather than claiming unattended recovery.
+
 The script runs unit tests and Android lint before it builds the bundle. Verify the bundle signature separately when needed:
 
 ```powershell

@@ -21,8 +21,12 @@ interface WatchedDeviceDao {
     @Delete
     suspend fun delete(device: WatchedDevice)
 
-    @Query("UPDATE watched_devices SET lastSeenAt = :timestamp WHERE address = :address")
+    @Query("UPDATE watched_devices SET lastSeenAt = :timestamp WHERE address = :address AND (lastSeenAt IS NULL OR lastSeenAt < :timestamp)")
     suspend fun updateLastSeen(address: String, timestamp: Long)
+
+    @Query("""UPDATE watched_devices SET name = COALESCE(:name, name), lastSeenAt = :timestamp
+        WHERE address = :address AND (lastSeenAt IS NULL OR lastSeenAt < :timestamp)""")
+    suspend fun recordObservation(address: String, timestamp: Long, name: String?)
 
     @Query("UPDATE watched_devices SET name = :name WHERE address = :address")
     suspend fun updateName(address: String, name: String)

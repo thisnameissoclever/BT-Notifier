@@ -18,6 +18,14 @@ interface DeviceMetadataDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(meta: DeviceMetadata)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(meta: DeviceMetadata)
+
+    @Query("""UPDATE device_metadata
+        SET lastSeenName = COALESCE(:name, lastSeenName), lastObservedAt = :timestamp
+        WHERE address = :address AND (lastObservedAt IS NULL OR lastObservedAt < :timestamp)""")
+    suspend fun recordObservation(address: String, timestamp: Long, name: String?)
+
     @Query("UPDATE device_metadata SET isHidden = :hidden WHERE address = :address")
     suspend fun setHidden(address: String, hidden: Boolean)
 

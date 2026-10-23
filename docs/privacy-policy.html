@@ -27,7 +27,7 @@
   <main>
     <article>
       <h1>BT Notifier Privacy Policy</h1>
-      <p class="date"><strong>Effective date:</strong> August 29, 2026</p>
+      <p class="date"><strong>Effective date:</strong> October 23, 2026</p>
 
       <p>BT Notifier is an Android utility that scans for nearby Bluetooth devices, maintains a watch list, and can show a local notification when a watched device appears.</p>
 
@@ -40,10 +40,11 @@
       </ul>
 
       <h2>Collection and sharing</h2>
-      <p>BT Notifier does not send this information to the developer or to third parties. The app does not include an account system, advertising, analytics, crash reporting, or an internet permission. Bluetooth and Wi-Fi information is processed locally to provide the features you request.</p>
+      <p>BT Notifier does not automatically send this information to the developer or to third parties. The app does not include an account system, advertising, analytics, crash reporting, or an internet permission. Bluetooth and Wi-Fi information is processed locally to provide the features you request. If you export detection history, Android saves a CSV file to the destination you select. That destination may be another app or a cloud-storage provider under your control.</p>
 
       <h2>Storage and retention</h2>
       <p>Watch-list entries, device aliases, hidden-device choices, the selected Wi-Fi network name, and app settings are stored in the app's private storage on your device. You can remove individual entries in the app. Android removes the app's local data when you clear its storage or uninstall it. Depending on your Android backup settings, the operating system may include app data in a device backup controlled by your Google account or device provider.</p>
+      <p>Detection history records device addresses, observed names, signal strength, device type, detection time, and whether the observation came from background monitoring, a nearby scan, or the finder. The app keeps the latest observation per device per minute, retains up to 10,000 records for up to 30 days, and removes older records when history is read or new observations are recorded. Hidden devices are excluded from the history screen and export. You can clear history without removing your watch list or settings. Exported copies remain in your selected destination until you remove them there.</p>
 
       <h2>Permissions</h2>
       <p>BT Notifier requests only permissions used by its features:</p>
@@ -52,7 +53,7 @@
         <li><strong>Location:</strong> support Bluetooth discovery on older Android versions and read Wi-Fi network names for the optional Wi-Fi scan limit. BT Notifier does not collect or transmit precise location coordinates.</li>
         <li><strong>Nearby Wi-Fi devices:</strong> list Wi-Fi network names when you configure the optional Wi-Fi scan limit.</li>
         <li><strong>Notifications:</strong> show the background-scanning status and alerts for watched devices.</li>
-        <li><strong>Foreground service and startup:</strong> run user-enabled background scans with a visible status notification and restore that setting after the device restarts.</li>
+        <li><strong>Foreground service and startup:</strong> run user-enabled background scans with a visible status notification. Android may require you to reopen the app to resume Wi-Fi-gated monitoring after a restart.</li>
       </ul>
       <p>You can deny optional permissions or disable background scanning in the app's settings. Some features will be unavailable without the permissions they require.</p>
 

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:paddingStart="16dp" android:paddingEnd="16dp">
+
+    <TextView android:id="@+id/tv_history_title"
+        android:layout_width="0dp" android:layout_height="wrap_content"
+        android:paddingTop="16dp" android:text="@string/history_title"
+        android:textColor="@color/on_surface" android:textSize="22sp" android:textStyle="bold"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView android:id="@+id/tv_history_description"
+        android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="@string/history_description"
+        android:textColor="@color/on_surface"
+        app:layout_constraintTop_toBottomOf="@id/tv_history_title"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView android:id="@+id/tv_history_export_notice"
+        android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="@string/history_export_notice"
+        android:textColor="@color/on_surface_variant"
+        app:layout_constraintTop_toBottomOf="@id/tv_history_description"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_export_history"
+        android:layout_width="0dp" android:layout_height="wrap_content" android:minHeight="48dp"
+        android:layout_marginTop="8dp" android:layout_marginEnd="8dp" android:text="@string/history_export"
+        app:layout_constraintTop_toBottomOf="@id/tv_history_export_notice"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toStartOf="@id/btn_clear_history"
+        app:layout_constraintHorizontal_chainStyle="spread" />
+
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_clear_history"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="0dp" android:layout_height="wrap_content" android:minHeight="48dp"
+        android:layout_marginTop="8dp" android:text="@string/history_clear"
+        app:layout_constraintTop_toBottomOf="@id/tv_history_export_notice"
+        app:layout_constraintStart_toEndOf="@id/btn_export_history" app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView android:id="@+id/tv_history_status"
+        android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:accessibilityLiveRegion="polite"
+        android:textColor="@color/on_surface" android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/btn_clear_history"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+
+    <com.google.android.material.button.MaterialButton android:id="@+id/btn_retry_history"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:minHeight="48dp" android:text="@string/history_retry" android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/tv_history_status"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <ProgressBar android:id="@+id/progress_history"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="0dp" android:layout_height="4dp"
+        android:indeterminate="true" android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/btn_retry_history"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/recycler_history"
+        android:layout_width="0dp" android:layout_height="0dp"
+        android:layout_marginTop="8dp" android:clipToPadding="false" android:paddingBottom="16dp"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+        app:layout_constraintTop_toBottomOf="@id/progress_history"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView android:id="@+id/tv_history_empty"
+        android:layout_width="0dp" android:layout_height="wrap_content"
+        android:text="@string/history_empty" android:textAlignment="center" android:visibility="gone"
+        android:textColor="@color/on_surface_variant"
+        app:layout_constraintTop_toTopOf="@id/recycler_history"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+</androidx.constraintlayout.widget.ConstraintLayout>

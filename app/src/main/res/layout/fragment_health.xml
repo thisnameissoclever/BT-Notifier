@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/background">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="16dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_title" android:textSize="22sp" android:textStyle="bold"
+            android:textColor="@color/on_surface" android:accessibilityHeading="true" />
+        <TextView android:id="@+id/tv_monitoring" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingTop="16dp" android:textSize="16sp" android:textColor="@color/on_surface" />
+        <TextView android:id="@+id/tv_completed" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingTop="16dp" android:textColor="@color/on_surface" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_persisted_note" android:paddingTop="8dp" android:textColor="@color/on_surface" />
+        <TextView android:id="@+id/tv_resume" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingTop="16dp" android:textColor="@color/on_surface" android:accessibilityLiveRegion="polite" />
+        <Button android:id="@+id/btn_resume" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_resume" />
+        <TextView android:id="@+id/tv_bluetooth" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingTop="16dp" android:textColor="@color/on_surface" />
+        <Button android:id="@+id/btn_bluetooth" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_bluetooth_settings" />
+        <Button android:id="@+id/btn_permissions" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_app_settings" />
+        <TextView android:id="@+id/tv_notifications" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingTop="16dp" android:textColor="@color/on_surface" />
+        <Button android:id="@+id/btn_notifications" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_notification_settings" />
+        <TextView android:id="@+id/tv_wifi" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingTop="16dp" android:textColor="@color/on_surface" />
+        <Button android:id="@+id/btn_wifi" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_wifi_settings" />
+        <Button android:id="@+id/btn_location" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_location_settings" />
+        <TextView android:id="@+id/tv_battery" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingTop="16dp" android:textColor="@color/on_surface" />
+        <Button android:id="@+id/btn_battery" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/health_battery_settings" />
+    </LinearLayout>
+</ScrollView>

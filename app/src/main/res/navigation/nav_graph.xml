@@ -25,4 +25,21 @@
         tools:layout="@layout/fragment_settings"
         xmlns:tools="http://schemas.android.com/tools" />
 
+    <fragment
+        android:id="@+id/healthFragment"
+        android:name="com.btnotifier.ui.health.HealthFragment"
+        android:label="Health" />
+
+    <fragment
+        android:id="@+id/historyFragment"
+        android:name="com.btnotifier.ui.history.HistoryFragment"
+        android:label="History" />
+
+    <fragment
+        android:id="@+id/finderFragment"
+        android:name="com.btnotifier.ui.finder.FinderFragment"
+        android:label="Device finder">
+        <argument android:name="address" app:argType="string" />
+        <argument android:name="displayName" app:argType="string" />
+    </fragment>
 </navigation>

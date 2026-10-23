@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="history_title">History</string>
+    <string name="history_description">Local detections from background scans, Nearby, and Finder. Hidden devices are excluded. Keeps up to 30 days and 10,000 records.</string>
+    <string name="history_export_notice">Exported copies are controlled by the storage destination you choose.</string>
+    <string name="history_export">Export CSV</string>
+    <string name="history_clear">Clear history</string>
+    <string name="history_clear_title">Clear detection history?</string>
+    <string name="history_clear_message">Delete all local detection records, including hidden devices. Watched devices, aliases, hidden choices, settings, and last-seen times stay saved.</string>
+    <string name="history_cancel">Cancel</string>
+    <string name="history_retry">Retry</string>
+    <string name="history_empty">No visible detections yet. Scan nearby devices or resume monitoring.</string>
+    <string name="history_load_failed">History could not be loaded. Try again.</string>
+    <string name="history_clear_failed">History could not be cleared. Try again.</string>
+    <string name="history_cleared">Local detection history cleared.</string>
+    <string name="history_export_failed">Export failed. The destination may contain an incomplete file. Choose a destination and try again.</string>
+    <string name="history_exported">CSV exported to the selected destination.</string>
+    <string name="history_unnamed">Unnamed device</string>
+    <string name="history_background">Background</string>
+    <string name="history_nearby">Nearby</string>
+    <string name="history_finder">Finder</string>
+    <string name="history_details">%1$d dBm · %2$s · %3$s</string>
+</resources>
