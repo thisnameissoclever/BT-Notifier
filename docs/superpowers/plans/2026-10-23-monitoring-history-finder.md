@@ -8,7 +8,7 @@
 
 **Architecture:** Share physical scans through owner-specific leases and generations. Keep observation storage and notification policy separate. Add an additive history table, lifecycle-bound feature screens, truthful health state, and an explicit Wi-Fi monitoring resume path under the existing permission model.
 
-**Constraints:** No new dependencies, background-location permission, arrival/departure alerts, or per-device rules. Keep minimum API 23 and target API 37. Run relevant verification locally with one worker and a bounded heap. Do not interrupt shared devices/processes. Preserve filtered Pages deployment when privacy HTML changes. Hold the earlier bundle upload until this pass is complete.
+**Constraints:** No new dependencies, background-location permission, arrival/departure alerts, or per-device rules. Keep minimum API 24 and target API 37. The user approved dropping Android 6 support to retain Play automatic protection. Run relevant verification locally with one worker and a bounded heap. Do not interrupt shared devices/processes. Preserve filtered Pages deployment when privacy HTML changes. Hold the earlier bundle upload until this pass is complete.
 
 ## Architecture review
 

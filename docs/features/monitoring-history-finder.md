@@ -4,7 +4,7 @@
 
 Add a monitoring health screen, local detection history with export, and a device finder. Preserve existing watched-device-found alerts. Do not add arrival/departure transition alerts. Per-device schedules, quiet hours, configurable cooldowns, and Wi-Fi rules belong in the backlog.
 
-Resolve the existing scan filtering, cancellation, permission, boot recovery, last-seen, and manual-timer findings before submitting the updated release to Google Play. Keep API 37, minimum API 23, and existing dependencies.
+Resolve the existing scan filtering, cancellation, permission, boot recovery, last-seen, and manual-timer findings before submitting the updated release to Google Play. Keep API 37 and existing dependencies. Use minimum API 24 to retain Play automatic protection, as approved by the user.
 
 ## Monitoring and scanner ownership
 

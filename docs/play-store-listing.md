@@ -12,6 +12,8 @@ Find nearby Bluetooth devices and get alerts when watched devices reappear.
 
 BT Notifier helps you find nearby Bluetooth and Bluetooth Low Energy devices, keep a watch list, and receive local alerts when watched devices appear.
 
+Requires Android 7.0 or later.
+
 Use BT Notifier to:
 
 - Scan for nearby Bluetooth devices and view their names, addresses, signal strength, and device type.

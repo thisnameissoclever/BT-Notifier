@@ -4,7 +4,7 @@
 
 Use Java 17 or newer and install Android SDK Platform 37.0. The checked-in Gradle wrapper selects Gradle 9.3.1. Android Gradle plugin 9.1.1 supplies the Kotlin compiler; Kotlin Symbol Processing 2.3.12 generates the Room 2.8.4 database code. Keep the Room compiler and runtime versions aligned.
 
-The app compiles against and targets Android 17 (API 37). It supports Android 6.0 (API 23) and later. Confirm that the version code exceeds every bundle already uploaded to Play Console before building an update.
+The app compiles against and targets Android 17 (API 37). It supports Android 7.0 (API 24) and later. Play automatic protection requires this minimum SDK; keep that protection enabled. Android 6 devices retain their existing installation and cannot receive this update. Confirm that the version code exceeds every bundle already uploaded to Play Console before building an update.
 
 Run verification locally. Use one worker on a shared machine:
 

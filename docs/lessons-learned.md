@@ -1,5 +1,12 @@
 # Lessons Learned
 
+## 2026-10-23: Check publishing enhancements against the minimum SDK
+
+1. What happened: Play rejected the API 23 bundle because enabled automatic protection requires minimum API 24.
+2. Root cause: Local builds verified the application's declared compatibility, while Play's publishing enhancement imposed an additional minimum Android version.
+3. Prevention rule: Check enabled publishing enhancements as well as target-SDK policy before preparing a release. Obtain approval before dropping supported Android versions or weakening a protection setting. Keep automatic protection enabled after the approved minimum-SDK change.
+4. Verification: Inspect the packaged minimum SDK, run relevant local and emulator checks, and verify that Play accepts the replacement bundle with automatic protection still enabled.
+
 ## 2026-10-23: Reset manual scan display without clearing another consumer's results
 
 1. What happened: A fresh Nearby scan retained old rows because the singleton display cache outlived each scan lease.
